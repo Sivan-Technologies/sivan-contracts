@@ -1,0 +1,29 @@
+{
+  "name": "sivan-contracts",
+  "version": "1.0.0",
+  "description": "Autonomous Non-Custodial x402 Service Agreement Settlement Facility on Celo for Sivan AI & Web3 Developers",
+  "main": "index.js",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "deploy:alfajores": "hardhat run scripts/deploy.js --network alfajores",
+    "deploy:celo": "hardhat run scripts/deploy.js --network celo"
+  },
+  "keywords": [
+    "celo",
+    "x402",
+    "service-agreement",
+    "non-custodial",
+    "ai-agent",
+    "erc-8004",
+    "minipay"
+  ],
+  "author": "Samson Micheal <sivantechnology@gmail.com>",
+  "license": "MIT",
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@openzeppelin/contracts": "^5.2.0",
+    "dotenv": "^16.4.7",
+    "hardhat": "^2.22.18"
+  }
+}
