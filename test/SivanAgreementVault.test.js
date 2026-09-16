@@ -166,7 +166,7 @@ describe("SivanAgreementVault", function () {
       const initialPartnerBal = await usdc.balanceOf(partnerDeveloper.address);
 
       await expect(
-        vault.connect(buyer).releasePayment(agreementId, "0x", agentSignature)
+        vault.connect(buyer).releasePayment(agreementId, "0x", agentSignature, 0)
       ).to.emit(vault, "AgreementReleased");
 
       // Verify contractor received net 99.25 USDC

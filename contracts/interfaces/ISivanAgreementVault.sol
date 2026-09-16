@@ -87,7 +87,8 @@ interface ISivanAgreementVault {
     function releasePayment(
         bytes32 agreementId,
         bytes calldata buyerSignature,
-        bytes calldata agentAttestation
+        bytes calldata agentAttestation,
+        uint256 expiry
     ) external;
 
     function refundBuyer(bytes32 agreementId) external;

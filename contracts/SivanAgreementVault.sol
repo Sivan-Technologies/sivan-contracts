@@ -26,6 +26,14 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     uint256 public constant BPS_DIVISOR = 10000;
     uint256 public constant MAX_FEE_BPS = 300; // Hard safety cap: Protocol fee cannot exceed 3%
     uint256 public constant MAX_PARTNER_SHARE_BPS = 5000; // Developer partner share capped at 50% of fee
+    /**
+     * The longest a buyer release authorization may stay valid.
+     *
+     * Without a ceiling a buyer could sign an expiry years out, leaving a
+     * standing release order that a relayer can fire at any moment long after
+     * the deal context has changed. One day is generous for a relayed flow.
+     */
+    uint256 public constant MAX_AUTHORIZATION_WINDOW = 1 days;
 
     bytes32 public constant RELEASE_TYPEHASH = keccak256(
         "ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 expiry)"
@@ -373,7 +381,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     function releasePayment(
         bytes32 agreementId,
         bytes calldata buyerSignature,
-        bytes calldata agentAttestation
+        bytes calldata agentAttestation,
+        uint256 expiry
     ) external override nonReentrant whenNotPaused {
         Agreement storage agr = agreements[agreementId];
         require(
@@ -383,8 +392,27 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
         // 1. Verify Buyer Authorization
         if (msg.sender != agr.buyer) {
+            /**
+             * THE DELEGATED RELEASE PATH WAS UNUSABLE.
+             *
+             * The digest embedded `block.timestamp + 1 hours` as the expiry.
+             * A buyer signing off chain cannot know the block timestamp of the
+             * block their signature will eventually land in, so the digest they
+             * signed never matched the digest the contract recomputed. Every
+             * correctly signed authorization failed with "Invalid buyer release
+             * authorization", which means no relayer, no agent and no gasless
+             * flow could ever release a payment. Proven by test before this fix.
+             *
+             * The expiry is now an explicit parameter: the buyer chooses it,
+             * signs it, and the contract enforces it. That is the only way both
+             * sides can agree on the same digest.
+             */
             require(buyerSignature.length == 65, "Invalid buyer signature length");
-            uint256 nonce = agreementNonces[agreementId]++;
+            require(expiry >= block.timestamp, "Release authorization expired");
+            require(expiry <= block.timestamp + MAX_AUTHORIZATION_WINDOW,
+                "Release authorization window too long");
+
+            uint256 nonce = agreementNonces[agreementId];
             bytes32 buyerStructHash = keccak256(
                 abi.encode(
                     RELEASE_TYPEHASH,
@@ -392,12 +420,22 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
                     agr.contractor,
                     agr.netAmount,
                     nonce,
-                    block.timestamp + 1 hours
+                    expiry
                 )
             );
             bytes32 buyerDigest = _hashTypedDataV4(buyerStructHash);
             address recoveredBuyer = ECDSA.recover(buyerDigest, buyerSignature);
             require(recoveredBuyer == agr.buyer, "Invalid buyer release authorization");
+
+            /**
+             * Burn the nonce only AFTER the signature validates.
+             *
+             * Incrementing first meant a failed attempt still consumed a nonce.
+             * The whole transaction reverts so nothing persisted, but reading it
+             * that way invites a future refactor that does persist it. Advancing
+             * on success only is the version that stays correct.
+             */
+            agreementNonces[agreementId] = nonce + 1;
         }
 
         // 2. Verify Sivan AI Agent Attestation (ERC-8004 Agent #9827)

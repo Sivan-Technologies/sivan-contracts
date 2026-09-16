@@ -95,7 +95,7 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
     // And the accounting must hold end to end: release must empty the vault.
     const agr = await vault.getAgreement(a);
     const sig = await agentSig(vault, owner, a, 9827n, "", agr.deadlineTimestamp);
-    await vault.connect(buyer).releasePayment(a, "0x", sig);
+    await vault.connect(buyer).releasePayment(a, "0x", sig, 0);
 
     expect(await fot.balanceOf(vaultAddr)).to.equal(
       0n, "shortfall left behind, or paid out of another agreement's funds"
@@ -114,13 +114,11 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
     const ag = await vault.getAgreement(a);
     const bg = await vault.getAgreement(b);
 
-    await vault.connect(buyer).releasePayment(
-      a, "0x", await agentSig(vault, owner, a, 9827n, "", ag.deadlineTimestamp));
+    await vault.connect(buyer).releasePayment(a, "0x", await agentSig(vault, owner, a, 9827n, "", ag.deadlineTimestamp), 0);
 
     // If the first release over-paid, this one has nothing left to pay with.
     await expect(
-      vault.connect(buyer).releasePayment(
-        b, "0x", await agentSig(vault, owner, b, 9827n, "", bg.deadlineTimestamp))
+      vault.connect(buyer).releasePayment(b, "0x", await agentSig(vault, owner, b, 9827n, "", bg.deadlineTimestamp), 0)
     ).to.not.be.reverted;
 
     expect(await fot.balanceOf(await vault.getAddress())).to.equal(0n);
