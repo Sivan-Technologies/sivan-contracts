@@ -86,8 +86,37 @@ async function describeToken(address) {
 }
 
 async function main() {
-  const [deployer] = await hre.ethers.getSigners();
   const net = hre.network.name;
+
+  /**
+   * Check the deployer key BEFORE touching the network.
+   *
+   * hre.ethers.getSigners() opens an RPC connection, so a missing key
+   * surfaced as an ENOTFOUND DNS error rather than "you forgot the key".
+   * Diagnosing a config mistake from a network stack trace wastes time that
+   * a one-line check prevents.
+   */
+  if (net !== "hardhat" && net !== "localhost" && net !== "celofork") {
+    const key = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
+    if (!key) {
+      throw new Error(
+        `DEPLOYER_PRIVATE_KEY is empty, so there is nothing to sign the ${net} ` +
+          "deployment with.\n" +
+          "  1. cp .env.example .env\n" +
+          "  2. generate a FRESH key (cast wallet new)\n" +
+          "  3. fund it at https://faucet.celo.org for Alfajores"
+      );
+    }
+    const normalised = key.startsWith("0x") ? key : `0x${key}`;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(normalised)) {
+      throw new Error(
+        "DEPLOYER_PRIVATE_KEY is not a 32-byte hex key. Expected 64 hex " +
+          "characters, optionally 0x-prefixed."
+      );
+    }
+  }
+
+  const [deployer] = await hre.ethers.getSigners();
 
   console.log("Deploying SivanAgreementVault");
   console.log("  network :", net, "(chainId", hre.network.config.chainId + ")");
