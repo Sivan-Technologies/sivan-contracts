@@ -13,11 +13,22 @@ module.exports = {
         enabled: true,
         runs: 200,
       },
+      // Required: deposit() carries enough locals to exceed the EVM's 16 stack
+      // slots once fee-on-transfer balance measurement is included. viaIR is
+      // the standard remedy and is what production Solidity ships with.
+      viaIR: true,
       evmVersion: "cancun",
     },
   },
   networks: {
     hardhat: {
+      chainId: 31337,
+    },
+    // A local fork of Celo mainnet, so the deploy script's token allowlist
+    // seeding can be exercised against the REAL cUSD/USDC/USDT contracts
+    // rather than only on a bare local chain where it is skipped.
+    celofork: {
+      url: "http://127.0.0.1:8545",
       chainId: 31337,
     },
     alfajores: {
