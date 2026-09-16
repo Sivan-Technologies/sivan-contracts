@@ -13,6 +13,10 @@ module.exports = {
         enabled: true,
         runs: 200,
       },
+      // Required: deposit() carries enough locals to exceed the EVM's 16 stack
+      // slots once fee-on-transfer balance measurement is included. viaIR is
+      // the standard remedy and is what production Solidity ships with.
+      viaIR: true,
       evmVersion: "cancun",
     },
   },

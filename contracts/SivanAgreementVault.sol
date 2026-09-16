@@ -55,12 +55,35 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     /** True once the owner lists a first token. See setSupportedToken. */
     bool public tokenAllowlistEnforced;
 
+    /**
+     * THE TIER SCHEDULE IS STATE, NOT CONSTANTS.
+     *
+     * These were compile-time literals, which meant changing the price of the
+     * product required redeploying a vault that is holding customer money.
+     * Bounds are expressed in WHOLE TOKEN UNITS and scaled by each token's own
+     * decimals at call time, so one schedule serves 6dp USDC and 18dp cNGN.
+     */
+    uint256 public tier1UpperUnits = 50;
+    uint256 public tier1Bps = 100;
+    uint256 public tier2UpperUnits = 500;
+    uint256 public tier2Bps = 75;
+    uint256 public tier3Bps = 50;
+
     // ─── Events ──────────────────────────────────────────────────────────────
 
     event FeeCollectorUpdated(address indexed oldCollector, address indexed newCollector);
     event AgentAttesterUpdated(address indexed oldAttester, address indexed newAttester);
     event FeePolicyUpdated(uint256 defaultFeeBps, uint256 partnerShareBps, bool dynamicEnabled);
     event TokenSupportUpdated(address indexed token, bool supported);
+
+    /** Emitted when the owner re-prices the dynamic tier schedule. */
+    event FeeTiersUpdated(
+        uint256 tier1UpperUnits,
+        uint256 tier1Bps,
+        uint256 tier2UpperUnits,
+        uint256 tier2Bps,
+        uint256 tier3Bps
+    );
 
     // ─── Constructor ─────────────────────────────────────────────────────────
 
@@ -113,6 +136,52 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         emit FeePolicyUpdated(_defaultFeeBps, _partnerShareBps, _dynamicEnabled);
     }
 
+    /**
+     * @notice Re-price the dynamic tier schedule without redeploying.
+     * @param _t1Units Upper bound of tier 1, in whole token units.
+     * @param _t1Bps   Fee for tier 1.
+     * @param _t2Units Upper bound of tier 2, in whole token units.
+     * @param _t2Bps   Fee for tier 2.
+     * @param _t3Bps   Fee above tier 2.
+     * @dev Every tier is checked against MAX_FEE_BPS. Without that an owner
+     *      could quietly raise fees past the ceiling the contract advertises,
+     *      which is the whole point of having a hard cap.
+     */
+    function setFeeTiers(
+        uint256 _t1Units,
+        uint256 _t1Bps,
+        uint256 _t2Units,
+        uint256 _t2Bps,
+        uint256 _t3Bps
+    ) external onlyOwner {
+        require(_t1Bps <= MAX_FEE_BPS && _t2Bps <= MAX_FEE_BPS && _t3Bps <= MAX_FEE_BPS,
+            "Tier fee exceeds cap");
+        require(_t1Units > 0 && _t2Units > _t1Units, "Tier bounds not ascending");
+
+        tier1UpperUnits = _t1Units;
+        tier1Bps = _t1Bps;
+        tier2UpperUnits = _t2Units;
+        tier2Bps = _t2Bps;
+        tier3Bps = _t3Bps;
+
+        emit FeeTiersUpdated(_t1Units, _t1Bps, _t2Units, _t2Bps, _t3Bps);
+    }
+
+    /**
+     * @notice List or delist several assets in one transaction.
+     * @dev Adding USDT, cNGN and cEUR previously cost one transaction each.
+     */
+    function setSupportedTokens(address[] calldata tokens, bool supported) external onlyOwner {
+        for (uint256 i = 0; i < tokens.length; i++) {
+            require(tokens[i] != address(0), "Invalid token");
+            supportedTokens[tokens[i]] = supported;
+            emit TokenSupportUpdated(tokens[i], supported);
+        }
+        if (supported && tokens.length > 0 && !tokenAllowlistEnforced) {
+            tokenAllowlistEnforced = true;
+        }
+    }
+
     function setSupportedToken(address token, bool supported) external onlyOwner {
         require(token != address(0), "Invalid token");
         supportedTokens[token] = supported;
@@ -155,15 +224,12 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
         uint256 unit = 10 ** uint256(decimals);
 
-        // Tier 1: <= 50 units   -> 1.00% (100 bps)
-        // Tier 2: <= 500 units  -> 0.75% (75 bps)
-        // Tier 3: > 500 units   -> 0.50% (50 bps)
-        if (amount <= 50 * unit) {
-            return 100;
-        } else if (amount <= 500 * unit) {
-            return 75;
+        if (amount <= tier1UpperUnits * unit) {
+            return tier1Bps;
+        } else if (amount <= tier2UpperUnits * unit) {
+            return tier2Bps;
         } else {
-            return 50;
+            return tier3Bps;
         }
     }
 
@@ -216,44 +282,62 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Uninitialized, "Agreement already exists");
 
-        // Price against the TOKEN's decimals, not an assumed 6.
-        uint8 tokenDecimals = IERC20Metadata(token).decimals();
-        uint256 feeBps = calculateFeeForToken(amount, tokenDecimals);
-        uint256 feeAmount = (amount * feeBps) / BPS_DIVISOR;
-        uint256 netAmount = amount - feeAmount;
+        uint256 feeBps;
+        {
+            // Price against the TOKEN's decimals, not an assumed 6.
+            feeBps = calculateFeeForToken(amount, IERC20Metadata(token).decimals());
+        }
+
+        /**
+         * MEASURE WHAT ARRIVED. DO NOT TRUST `amount`.
+         *
+         * Fee-on-transfer tokens deliver less than the sender sent. Recording
+         * `amount` as the balance meant the vault believed it held more than it
+         * did, and the shortfall came out of the NEXT agreement's locked funds
+         * on release. One user's escrow silently paying another's is the worst
+         * failure mode this contract has.
+         *
+         * The transfer therefore happens BEFORE the accounting, and every
+         * figure is derived from the measured delta.
+         */
+        uint256 received;
+        {
+            uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+            IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
+            received = IERC20(token).balanceOf(address(this)) - balanceBefore;
+        }
+        require(received > 0, "No tokens received");
+
+        uint256 feeAmount = (received * feeBps) / BPS_DIVISOR;
 
         uint256 partnerFeeAmount = 0;
         if (partnerAddress != address(0) && partnerAddress != msg.sender && partnerAddress != contractor) {
             partnerFeeAmount = (feeAmount * partnerRevenueShareBps) / BPS_DIVISOR;
         }
 
-        uint256 deadlineTimestamp = block.timestamp + (deadlineHours * 1 hours);
-
         agreements[agreementId] = Agreement({
             agreementId: agreementId,
             buyer: msg.sender,
             contractor: contractor,
             token: token,
-            totalAmount: amount,
+            totalAmount: received,
             feeAmount: feeAmount,
-            netAmount: netAmount,
-            deadlineTimestamp: deadlineTimestamp,
+            netAmount: received - feeAmount,
+            deadlineTimestamp: block.timestamp + (deadlineHours * 1 hours),
             state: AgreementState.Funded,
             partnerAddress: partnerAddress,
             partnerFeeAmount: partnerFeeAmount,
             deliverableProof: ""
         });
 
-        IERC20(token).safeTransferFrom(msg.sender, address(this), amount);
-
         emit AgreementFunded(
             agreementId,
             msg.sender,
             contractor,
             token,
-            amount,
+            received,
             feeAmount,
-            deadlineTimestamp,
+            agreements[agreementId].deadlineTimestamp,
             partnerAddress
         );
     }
