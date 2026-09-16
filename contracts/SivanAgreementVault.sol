@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
@@ -51,6 +52,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     mapping(bytes32 => Agreement) public agreements;
     mapping(bytes32 => uint256) public agreementNonces;
     mapping(address => bool) public supportedTokens;
+    /** True once the owner lists a first token. See setSupportedToken. */
+    bool public tokenAllowlistEnforced;
 
     // ─── Events ──────────────────────────────────────────────────────────────
 
@@ -113,6 +116,12 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     function setSupportedToken(address token, bool supported) external onlyOwner {
         require(token != address(0), "Invalid token");
         supportedTokens[token] = supported;
+        // The first time the owner lists ANY token, the vault starts refusing
+        // everything not on the list. Before that it stays permissive so a new
+        // deployment is usable.
+        if (supported && !tokenAllowlistEnforced) {
+            tokenAllowlistEnforced = true;
+        }
         emit TokenSupportUpdated(token, supported);
     }
 
@@ -129,22 +138,38 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     /**
      * @notice Computes dynamic platform fee based on volume tier or base fee rate.
      */
-    function calculateFee(uint256 amount) public view returns (uint256 feeBps) {
+    /**
+     * @notice Fee in bps for an amount denominated in a token with `decimals`.
+     * @dev THE TIERS WERE HARDCODED TO 6 DECIMALS.
+     *
+     * `50 * 1e6` is correct for USDC. cUSD on Celo is 18 decimals, and the
+     * README lists cUSD as supported. With an 18dp token every realistic
+     * amount is astronomically larger than 500 * 1e6, so EVERY cUSD agreement
+     * silently landed in the cheapest 0.50% tier: a 10 cUSD micro payment was
+     * charged the whale rate. Tiers are now scaled to the token's own unit.
+     */
+    function calculateFeeForToken(uint256 amount, uint8 decimals) public view returns (uint256 feeBps) {
         if (!dynamicTieredFeesEnabled) {
             return defaultFeeBps;
         }
 
-        // Realistic thresholds for micro-commerce & freelance milestones:
-        // Tier 1: <= 50 USDC -> 1.00% (100 bps)
-        // Tier 2: 50 to 500 USDC -> 0.75% (75 bps)
-        // Tier 3: > 500 USDC -> 0.50% (50 bps)
-        if (amount <= 50 * 1e6) {
+        uint256 unit = 10 ** uint256(decimals);
+
+        // Tier 1: <= 50 units   -> 1.00% (100 bps)
+        // Tier 2: <= 500 units  -> 0.75% (75 bps)
+        // Tier 3: > 500 units   -> 0.50% (50 bps)
+        if (amount <= 50 * unit) {
             return 100;
-        } else if (amount <= 500 * 1e6) {
+        } else if (amount <= 500 * unit) {
             return 75;
         } else {
             return 50;
         }
+    }
+
+    /** @notice Backwards-compatible 6-decimal helper. Prefer calculateFeeForToken. */
+    function calculateFee(uint256 amount) public view returns (uint256 feeBps) {
+        return calculateFeeForToken(amount, 6);
     }
 
     // ─── Core Lifecycle: Deposit ─────────────────────────────────────────────
@@ -170,13 +195,30 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         require(contractor != address(0), "Invalid contractor address");
         require(contractor != msg.sender, "Contractor cannot be buyer");
         require(token != address(0), "Invalid token");
+        /**
+         * THE WHITELIST WAS WRITTEN BUT NEVER READ.
+         *
+         * setSupportedToken() populated `supportedTokens` and nothing ever
+         * consulted it, so an owner who believed they had restricted the vault
+         * to USDC and cUSD had not: any ERC-20 could be locked here, including
+         * a worthless or malicious one.
+         *
+         * Gated on `tokenAllowlistEnforced` rather than enforced outright,
+         * because a freshly deployed vault has an empty map and would refuse
+         * every deposit. The owner opts in once the first token is listed.
+         */
+        if (tokenAllowlistEnforced) {
+            require(supportedTokens[token], "Token not supported");
+        }
         require(amount > 0, "Amount must be positive");
         require(deadlineHours > 0 && deadlineHours <= 720, "Deadline between 1h and 30d");
 
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Uninitialized, "Agreement already exists");
 
-        uint256 feeBps = calculateFee(amount);
+        // Price against the TOKEN's decimals, not an assumed 6.
+        uint8 tokenDecimals = IERC20Metadata(token).decimals();
+        uint256 feeBps = calculateFeeForToken(amount, tokenDecimals);
         uint256 feeAmount = (amount * feeBps) / BPS_DIVISOR;
         uint256 netAmount = amount - feeAmount;
 
