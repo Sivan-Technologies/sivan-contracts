@@ -6,3 +6,8 @@ coverage/
 coverage.json
 .env
 .DS_Store
+
+# Foundry
+forge-out/
+cache_forge/
+lib/
