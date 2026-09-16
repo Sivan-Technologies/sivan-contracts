@@ -48,13 +48,22 @@ interface ISivanAgreementVault {
         string proofUrl
     );
 
+    /**
+     * @param deliveryRecorded True when the contractor had marked the milestone
+     *        delivered before release, which is also when an agent attestation
+     *        was required. False when the buyer released directly from Funded.
+     *        Carried on the event so a dispute can later distinguish "the buyer
+     *        paid against verified delivery" from "the buyer simply paid",
+     *        without replaying state.
+     */
     event AgreementReleased(
         bytes32 indexed agreementId,
         address indexed buyer,
         address indexed contractor,
         uint256 netAmount,
         uint256 protocolFee,
-        uint256 partnerFee
+        uint256 partnerFee,
+        bool deliveryRecorded
     );
 
     event AgreementRefunded(

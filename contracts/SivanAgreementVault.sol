@@ -385,10 +385,28 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         uint256 expiry
     ) external override nonReentrant whenNotPaused {
         Agreement storage agr = agreements[agreementId];
+        /**
+         * THE BUYER'S WORD IS FINAL. DELIVERY IS EVIDENCE, NOT A GATE.
+         *
+         * Release is permitted from Funded as well as Delivered, so a buyer may
+         * pay before the contractor has marked anything. That is deliberate.
+         *
+         * Requiring Delivered first would mean a contractor who finishes the
+         * work and then goes quiet can never be paid, because only they can
+         * call markDelivered. The buyer would be holding money both parties
+         * agree is owed, unable to send it. A deadlock that requires the
+         * payee's cooperation to pay the payee is worse than the ambiguity it
+         * would remove.
+         *
+         * What markDelivered does provide is `deliverableProof`, which is what
+         * the agent attestation below actually signs over. See that block for
+         * why the attestation is tied to delivery rather than to release.
+         */
         require(
             agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered,
             "Cannot release in current state"
         );
+        bool deliveryRecorded = agr.state == AgreementState.Delivered;
 
         // 1. Verify Buyer Authorization
         if (msg.sender != agr.buyer) {
@@ -438,8 +456,26 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             agreementNonces[agreementId] = nonce + 1;
         }
 
-        // 2. Verify Sivan AI Agent Attestation (ERC-8004 Agent #9827)
-        if (agentAttester != address(0)) {
+        /**
+         * 2. SIVAN AI AGENT ATTESTATION (ERC-8004 Agent #9827)
+         *
+         * Required only when a deliverable exists to attest to.
+         *
+         * Previously this ran on every release, including releases from Funded
+         * where `deliverableProof` is the empty string. The agent was then
+         * signing keccak256("") - a cryptographically valid signature over
+         * nothing at all. It looked like verification and verified nothing,
+         * which is worse than no check, because it invites the reader to
+         * believe a guarantee that is not there.
+         *
+         * Tying it to Delivered makes the claim honest and precise: every
+         * recorded DELIVERY is agent verified. It also removes a needless
+         * dependency from the commonest flow. A buyer approving their own
+         * payment in chat is already the authority on that payment; making an
+         * AI co-sign it adds an offline-able signer to the simplest path for
+         * no security gain.
+         */
+        if (agentAttester != address(0) && deliveryRecorded) {
             require(agentAttestation.length == 65, "Invalid agent attestation length");
             bytes32 deliverableHash = keccak256(bytes(agr.deliverableProof));
             bytes32 agentStructHash = keccak256(
@@ -479,7 +515,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             agr.contractor,
             agr.netAmount,
             protocolFee,
-            agr.partnerFeeAmount
+            agr.partnerFeeAmount,
+            deliveryRecorded
         );
     }
 
