@@ -40,8 +40,17 @@ interface ISivanAgreementVault {
          * timeout refund permanently. See DELIVERY_REVIEW_WINDOW.
          */
         uint256 deliveredAt;
-        /** When a dispute was raised. Zero unless state is Disputed. */
+        /** When a dispute was raised. Zero if none has ever been raised. */
         uint256 disputedAt;
+        /**
+         * True once an arbitration timed out without a ruling.
+         *
+         * A timeout restores the pre-dispute position rather than awarding
+         * funds, so this flag is what stops the cycle repeating: without it a
+         * party could dispute, wait out the owner, dispute again, and postpone
+         * settlement forever in 14 day steps.
+         */
+        bool disputeResolvedByTimeout;
         /**
          * THE SINGLE SOURCE OF TRUTH FOR WHEN THE BUYER MAY RECLAIM FUNDS.
          *

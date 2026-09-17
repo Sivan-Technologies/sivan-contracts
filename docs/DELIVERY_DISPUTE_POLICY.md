@@ -265,15 +265,35 @@ funds no address could move, since `resolveDispute` is `onlyOwner`. A lost key
 produces the same outcome accidentally.
 
 **Fixed, twice over.** `renounceOwnership` reverts, and
-`claimArbitrationTimeout` lets **anyone** return disputed funds to the buyer
-once `ARBITRATION_PERIOD` (14 days) has elapsed. Permissionless on purpose: it
+`claimArbitrationTimeout` lets **anyone** lift the freeze once
+`ARBITRATION_PERIOD` (14 days) has elapsed. Permissionless on purpose: it
 survives a renounced owner, a lost key, and an operator who has simply stopped
 responding. Not pausable, because a pause must never trap funds.
 
-The fallback favours the buyer because arbitration that never happened is not
-a finding against either party. That also fixes the incentives: a contractor
-cannot profit from a spurious dispute, since waiting returns the money to the
-buyer. The worst a bad-faith dispute achieves is bounded, known delay.
+### The first version of that fallback was itself exploitable
+
+My initial `claimArbitrationTimeout` always refunded the buyer. Testing my own
+fix showed it handed the buyer a clean theft: accept genuinely delivered work,
+file a bogus dispute (buyers are exempt from the filing deadline, deliberately),
+wait out an absent owner, take 100% back. The contractor did the work and
+received nothing. Reproduced before correcting it.
+
+The error was **treating "no ruling" as a ruling**. A timeout is the absence of
+a decision, so it must not move value in a direction neither party earned.
+
+It now **restores the pre-dispute position** instead:
+
+| Was | Returns to | Then |
+| --- | --- | --- |
+| Delivered | `Delivered`, unlock `deliveredAt + snapshot` | contractor can still be paid; buyer's refund on the original schedule |
+| Funded | `Funded`, unlock `deadlineTimestamp` | undelivered deadline still entitles the buyer to a refund |
+
+Nobody profits from arbitration failing, which is what makes the fallback safe
+to leave permissionless. Stalling the owner now gains you nothing.
+
+A dispute may be raised **once per agreement**. Without that, a party could
+dispute, stall 14 days, dispute again, and defer settlement forever in 14 day
+steps, which is the original permanent lock wearing a different hat.
 
 ### Also addressed
 
@@ -308,11 +328,11 @@ invariant asserting the unlock is bounded by
 |---|---|---|
 | Funded | deadline | buyer |
 | Delivered | `deliveredAt + snapshot` | buyer |
-| Disputed | `disputedAt + 14 days` | **anyone** |
+| Disputed | `disputedAt + 14 days` unfreezes | **anyone**, then the restored path applies |
 
 Ceiling: `deadline + 30 days + 2 days + 14 days`. Bounded by constants, not by
 anyone's cooperation.
 
-**Tests: 92 Hardhat, 7 invariants over 12,800 calls, plus 2 deterministic
+**Tests: 97 Hardhat, 7 invariants over 12,800 calls, plus 2 deterministic
 Foundry tests.** Every new guard mutation tested and restored byte-identical.
 Slither reports nothing against `SivanAgreementVault`.

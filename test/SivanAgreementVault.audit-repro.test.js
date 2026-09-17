@@ -82,13 +82,24 @@ describe("Audit findings: fixes", function () {
       await time.increase(HOURS * 3600 + 60);
       await vault.connect(contractor).raiseDispute(ID, "stalling");
 
-      // Was permanent. Now it is ARBITRATION_PERIOD and no longer.
+      // Was permanent. Now the freeze lifts after ARBITRATION_PERIOD.
+      //
+      // The timeout RESTORES the pre-dispute position rather than paying the
+      // buyer. An earlier version of this fix always refunded, and testing it
+      // showed that let a buyer steal genuinely delivered work by stalling an
+      // absent owner. Nobody may profit from arbitration failing.
       const period = await vault.ARBITRATION_PERIOD();
       await time.increase(Number(period) + 60);
+      await vault.connect(buyer).claimArbitrationTimeout(ID);
 
-      await expect(
-        vault.connect(buyer).claimArbitrationTimeout(ID)
-      ).to.changeTokenBalance(token, buyer, AMOUNT);
+      // Undelivered, so it returns to Funded and the ordinary deadline refund
+      // is available: the funds do exit, which is the actual guarantee.
+      expect((await vault.getAgreement(ID)).state).to.equal(1n); // Funded
+      await expect(vault.connect(buyer).refundBuyer(ID)).to.changeTokenBalance(
+        token,
+        buyer,
+        AMOUNT
+      );
     });
   });
 
@@ -154,9 +165,15 @@ describe("Audit findings: fixes", function () {
       await time.increase(Number(period) + 60);
 
       // Permissionless on purpose: survives a lost key or an absent operator.
-      await expect(
-        vault.connect(outsider).claimArbitrationTimeout(ID)
-      ).to.changeTokenBalance(token, buyer, AMOUNT);
+      // It unfreezes rather than awarding, so the buyer's refund comes from
+      // the ordinary path afterwards.
+      await vault.connect(outsider).claimArbitrationTimeout(ID);
+      expect((await vault.getAgreement(ID)).state).to.equal(1n); // Funded
+      await expect(vault.connect(buyer).refundBuyer(ID)).to.changeTokenBalance(
+        token,
+        buyer,
+        AMOUNT
+      );
     });
 
     it("does not let the timeout pre-empt a live arbitration", async () => {
@@ -171,6 +188,8 @@ describe("Audit findings: fixes", function () {
       await time.increase(Number(await vault.ARBITRATION_PERIOD()) + 60);
       await vault.connect(owner).pause();
       await expect(vault.connect(buyer).claimArbitrationTimeout(ID)).to.not.be.reverted;
+      // And the restored refund path is also exempt from pause.
+      await expect(vault.connect(buyer).refundBuyer(ID)).to.not.be.reverted;
     });
 
     it("still lets the owner rule inside the period", async () => {

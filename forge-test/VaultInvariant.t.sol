@@ -586,17 +586,29 @@ contract VaultFuzzTest is Test {
         vm.expectRevert("Arbitration period still running");
         vault.claimArbitrationTimeout(id);
 
-        // One second late: anyone at all can free the funds.
+        // One second late: anyone at all can lift the freeze.
+        //
+        // The timeout RESTORES the pre-dispute position, it does not award the
+        // funds. An earlier version always refunded the buyer, and testing that
+        // showed it let a buyer steal genuinely delivered work by stalling an
+        // absent owner. Nobody may profit from arbitration failing.
         vm.warp(a.refundUnlockAt + 1);
         uint256 before = token.balanceOf(buyer);
         vm.prank(address(0xDEADBEEF));
         vault.claimArbitrationTimeout(id);
 
-        assertEq(token.balanceOf(buyer) - before, a.totalAmount, "buyer not made whole");
+        assertEq(token.balanceOf(buyer) - before, 0, "timeout must not move money");
         assertEq(
             uint8(vault.getAgreement(id).state),
-            uint8(ISivanAgreementVault.AgreementState.Refunded)
+            uint8(ISivanAgreementVault.AgreementState.Funded),
+            "undelivered agreement should return to Funded"
         );
+
+        // And the funds genuinely do escape, via the ordinary deadline refund.
+        vm.warp(vault.getAgreement(id).refundUnlockAt + 1);
+        vm.prank(buyer);
+        vault.refundBuyer(id);
+        assertEq(token.balanceOf(buyer) - before, a.totalAmount, "buyer not made whole");
     }
 
     /** Ownership cannot be abandoned while it is the arbiter of last resort. */

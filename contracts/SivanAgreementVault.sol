@@ -486,6 +486,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             deliverableProof: "",
             deliveredAt: 0,
             disputedAt: 0,
+            disputeResolvedByTimeout: false,
             /**
              * The buyer's exit is fixed at funding time and only ever moves
              * forward by rules written here, never by a later settings change.
@@ -850,6 +851,17 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             "Only a party may dispute"
         );
         require(bytes(reason).length > 0, "Reason required");
+        /**
+         * ONE DISPUTE PER AGREEMENT.
+         *
+         * Because a timeout now restores the pre-dispute position instead of
+         * awarding funds, an agreement can return to Delivered or Funded with
+         * its dispute already spent. Without this check a party could dispute,
+         * stall the owner for 14 days, dispute again, and defer settlement
+         * indefinitely in 14 day increments, which is the original permanent
+         * lock wearing a different hat.
+         */
+        require(agr.disputedAt == 0, "Dispute already used for this agreement");
 
         /**
          * A DISPUTE CANNOT REVOKE A REFUND THAT HAS ALREADY VESTED.
@@ -931,17 +943,53 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             "Arbitration period still running"
         );
 
-        agr.state = AgreementState.Refunded;
-        uint256 refundAmount = agr.totalAmount;
+        /**
+         * THE TIMEOUT RESTORES THE PRE-DISPUTE POSITION. IT DOES NOT PICK A
+         * WINNER.
+         *
+         * My first version always refunded the buyer, and testing my own fix
+         * showed that handed the buyer a clean theft: accept genuinely
+         * delivered work, file a bogus dispute (buyers are exempt from the
+         * filing deadline, deliberately), wait out an absent owner, take 100%
+         * back. The contractor did the work and received nothing.
+         *
+         * The error was treating "no ruling" as a ruling. A timeout is the
+         * absence of a decision, so it must not move value in a direction
+         * neither party earned. What it should do is undo the freeze and
+         * return both sides to exactly where they stood before the dispute
+         * was filed, then let the ordinary clock run.
+         *
+         * Concretely: an agreement that was DELIVERED goes back to Delivered,
+         * where the contractor can still be paid and the buyer's refund is
+         * governed by the review window they originally agreed. One that was
+         * merely FUNDED goes back to Funded, where an undelivered deadline
+         * still entitles the buyer to a refund.
+         *
+         * Nobody profits from arbitration failing, which is the property that
+         * makes the fallback safe to leave permissionless. Deliberately
+         * stalling the owner now gains you nothing, so there is no reason to
+         * try.
+         *
+         * A dispute can only be raised ONCE per agreement, enforced below, so
+         * this cannot be used to loop the clock forever. The restored unlock
+         * keeps its original schedule rather than being pushed out again.
+         */
+        agr.disputeResolvedByTimeout = true;
 
-        IERC20(agr.token).safeTransfer(agr.buyer, refundAmount);
+        if (agr.deliveredAt != 0) {
+            agr.state = AgreementState.Delivered;
+            agr.refundUnlockAt = agr.deliveredAt + agr.reviewWindowSnapshot;
+        } else {
+            agr.state = AgreementState.Funded;
+            agr.refundUnlockAt = agr.deadlineTimestamp;
+        }
 
-        emit ArbitrationTimedOut(agreementId, msg.sender, refundAmount);
-        emit AgreementRefunded(
+        emit ArbitrationTimedOut(agreementId, msg.sender, 0);
+        emit RefundUnlockScheduled(
             agreementId,
-            agr.buyer,
-            refundAmount,
-            "Arbitration period expired without a ruling"
+            block.timestamp,
+            agr.refundUnlockAt,
+            "arbitration timed out, pre-dispute position restored"
         );
     }
 
