@@ -19,11 +19,11 @@ const hre = require("hardhat");
  * Each mainnet address below was read back from Celo with eth_call on
  * symbol() and decimals() before being written here:
  *
- *   0x765DE816845861e75A25fCA122bb6898B8B1282a  symbol USDm (cUSD)  18 dp
+ *   0x765DE816845861e75A25fCA122bb6898B8B1282a  symbol USDm         18 dp
  *   0xcebA9300f2b948710d2653dD7B07f33A8B32118C  symbol USDC          6 dp
  *   0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e  symbol USD₮ (USDT)   6 dp
  *
- * Note the decimal spread: 18dp cUSD next to 6dp USDC on the same vault. That
+ * Note the decimal spread: 18dp USDm next to 6dp USDC on the same vault. That
  * is precisely why the fee tiers are scaled per token rather than hardcoded to
  * 1e6, and why this list is worth verifying rather than trusting.
  */
@@ -33,16 +33,16 @@ const hre = require("hardhat");
  *
  * USDC is the primary settlement asset and the one every integration is tested
  * against first, so it is listed first and appears first in the deploy output.
- * cUSD and USDT follow.
+ * USDm and USDT follow.
  *
  * This is not cosmetic. The order here is the order the allowlist transaction
  * enumerates, the order the log prints, and the order anyone reading this file
- * will assume reflects priority. Leading with cUSD implied Celo's native
+ * will assume reflects priority. Leading with USDm implied Celo's native
  * stablecoin was the default, which is not how the product is being rolled out.
  */
 const MAINNET_TOKENS = {
   USDC: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", //  6 dp, primary
-  cUSD: "0x765DE816845861e75A25fCA122bb6898B8B1282a", // 18 dp, symbol reports USDm
+  USDm: "0x765DE816845861e75A25fCA122bb6898B8B1282a", // 18 dp, Mento Dollar
   USDT: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e", //  6 dp, symbol reports USD-T
 };
 
@@ -51,7 +51,7 @@ const MAINNET_TOKENS = {
  *
  * Alfajores was sunset on 30 Sep 2025 with Ethereum Holesky. Celo Sepolia
  * replaced it with a clean slate, which means every Alfajores address is
- * meaningless here. The old hardcoded Alfajores cUSD constant,
+ * meaningless here. The old hardcoded Alfajores USDm constant,
  * 0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1, returns an empty eth_getCode on
  * Celo Sepolia: it is not a token on this chain, it is nothing at all. Listing
  * it would have allowlisted a blank address.
@@ -61,7 +61,7 @@ const MAINNET_TOKENS = {
  * here. Same standard as the mainnet list:
  *
  *   0x01C5C0122039549AD1493B8220cABEdD739BC44E  symbol USDC         6 dp
- *   0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b  symbol USDm (cUSD) 18 dp
+ *   0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b  symbol USDm        18 dp
  *   0xd077A400968890Eacc75cdc901F0356c943e4fDb  symbol USD-T        6 dp
  *
  * USDC first, matching mainnet and matching how the product is rolled out.
@@ -70,7 +70,7 @@ const MAINNET_TOKENS = {
  */
 const CELO_SEPOLIA_TOKENS = {
   USDC: "0x01C5C0122039549AD1493B8220cABEdD739BC44E", //  6 dp, primary
-  cUSD: "0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b", // 18 dp, symbol reports USDm
+  USDm: "0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b", // 18 dp, Mento Dollar
   USDT: "0xd077A400968890Eacc75cdc901F0356c943e4fDb", //  6 dp, symbol reports USD-T
 };
 

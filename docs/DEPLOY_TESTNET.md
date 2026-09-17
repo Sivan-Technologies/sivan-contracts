@@ -126,7 +126,7 @@ Vault deployed: 0x...
 
 Verifying tokens on chain before listing:
   USDC  0x01C5C0122039549AD1493B8220cABEdD739BC44E  symbol=USDC decimals=6
-  cUSD  0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b  symbol=USDm decimals=18
+  USDm  0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b  symbol=USDm decimals=18
   USDT  0xd077A400968890Eacc75cdc901F0356c943e4fDb  symbol=USD₮ decimals=6
 
 Listed 3 assets in one transaction.

@@ -23,8 +23,8 @@ Key Benefits for Integrating Developers:
 
 Celo Mainnet (Chain ID 42220):
 - SivanAgreementVault: TBD (Deploying Phase 2)
-- Celo Native USDC: 0xcebA97Fcedaa310E7D988936b9741FA007a9C05c
-- Celo Dollar (cUSD): 0x765DE816845861e75A25fCA122bb6898B8B1282a
+- Celo Native USDC: 0xcebA9300f2b948710d2653dD7B07f33A8B32118C
+- USDm (Mento Dollar, formerly cUSD): 0x765DE816845861e75A25fCA122bb6898B8B1282a
 - Celo Nigerian Naira (cNGN): 0xD994AE75470763bb53e7E41a99859f5b61C8B49b
 
 Celo Alfajores Testnet (Chain ID 44787):
@@ -43,7 +43,7 @@ Call deposit() specifying your developer address as partnerAddress to claim your
 
 const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_custom_id_123"));
 const contractor = "0xContractorAddress...";
-const token = "0xcebA97Fcedaa310E7D988936b9741FA007a9C05c"; // USDC
+const token = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C"; // USDC
 const amount = ethers.parseUnits("50", 6); // 50 USDC
 const deadlineHours = 48;
 const partnerAddress = "0xYourDeveloperWallet..."; // Earn up to 30% of platform fee

@@ -51,8 +51,8 @@ describe("SivanAgreementVault · security", function () {
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     const token = await MockERC20.deploy("USD Coin", "USDC", 6);
     const rogue = await MockERC20.deploy("Rogue", "RGE", 6);
-    // cUSD on Celo is 18 decimals. The README says cUSD is supported.
-    const cusd  = await MockERC20.deploy("Celo Dollar", "cUSD", 18);
+    // USDm on Celo is 18 decimals. The README says USDm is supported.
+    const usdm  = await MockERC20.deploy("Mento Dollar", "USDm", 18);
 
     const Vault = await ethers.getContractFactory("SivanAgreementVault");
     // The constructor REFUSES a zero attester, so the agent path is always on.
@@ -63,13 +63,13 @@ describe("SivanAgreementVault · security", function () {
     for (const who of [buyer, attacker]) {
       await token.mint(who.address, USDC(100000));
       await rogue.mint(who.address, USDC(100000));
-      await cusd.mint(who.address, ethers.parseUnits("100000", 18));
+      await usdm.mint(who.address, ethers.parseUnits("100000", 18));
       await token.connect(who).approve(await vault.getAddress(), USDC(100000));
       await rogue.connect(who).approve(await vault.getAddress(), USDC(100000));
-      await cusd.connect(who).approve(await vault.getAddress(), ethers.parseUnits("100000", 18));
+      await usdm.connect(who).approve(await vault.getAddress(), ethers.parseUnits("100000", 18));
     }
 
-    return { vault, token, rogue, cusd, owner, buyer, contractor, partner, feeCollector, attacker };
+    return { vault, token, rogue, usdm, owner, buyer, contractor, partner, feeCollector, attacker };
   }
 
   /* ──────────────────────────────────────────────────────────────────
@@ -124,7 +124,7 @@ describe("SivanAgreementVault · security", function () {
    * setSupportedToken() exists and sets `supportedTokens[token]`, but
    * deposit() never consults it. Any ERC-20 can be locked in the vault,
    * including a malicious or worthless token. An owner who believes they
-   * have restricted the vault to USDC and cUSD has not.
+   * have restricted the vault to USDC and USDm has not.
    * ────────────────────────────────────────────────────────────────── */
   it("deposit must reject a token that is not on the supported list", async () => {
     const { vault, token, rogue, owner, buyer, contractor } = await deploy();
@@ -142,12 +142,12 @@ describe("SivanAgreementVault · security", function () {
   /* ──────────────────────────────────────────────────────────────────
    * BUG 3 · The fee is computed on `amount` in 6-decimal units, but
    * calculateFee() hardcodes `50 * 1e6` and `500 * 1e6` as the tier
-   * boundaries. That is correct for USDC (6dp) and WRONG for cUSD, which is
-   * 18 decimals on Celo - and the README says cUSD is supported.
+   * boundaries. That is correct for USDC (6dp) and WRONG for USDm, which is
+   * 18 decimals on Celo - and the README says USDm is supported.
    *
    * With an 18-decimal token, ANY realistic amount is astronomically greater
-   * than 500 * 1e6, so every cUSD agreement silently lands in the cheapest
-   * 0.50% tier. A 10 cUSD micro-payment is charged the whale rate.
+   * than 500 * 1e6, so every USDm agreement silently lands in the cheapest
+   * 0.50% tier. A 10 USDm micro-payment is charged the whale rate.
    * ────────────────────────────────────────────────────────────────── */
   it("fee tiers must be decimal-aware, not hardcoded to 6dp", async () => {
     const { vault } = await deploy();

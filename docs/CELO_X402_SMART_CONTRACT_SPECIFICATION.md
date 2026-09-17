@@ -19,7 +19,7 @@ The contract establishes a 100% non-custodial, autonomous settlement facility on
 - Sivan AI holds zero private keys to user funds.
 - Buyer funds are locked directly inside an immutable, audited smart contract on Celo Mainnet.
 - Settlement release requires dual cryptographic authorization: the buyer connected wallet signature (e.g. via MiniPay) and the Sivan AI registered ERC-8004 agent attestation.
-- Both human contractors and AI subagents can accept Service Agreements and settle instantly in USDC, cUSD, or local fiat (NGN).
+- Both human contractors and AI subagents can accept Service Agreements and settle instantly in USDC, USDm, or local fiat (NGN).
 
 2. The Two Layers of x402 on Celo
 
@@ -31,7 +31,7 @@ Layer 1: Off-Chain HTTP 402 AI Agent Coordination
 
 Layer 2: On-Chain Settlement Facility (SivanAgreementVault.sol)
 - An immutable Solidity smart contract deployed directly to Celo Mainnet.
-- Holds deposited ERC-20 tokens (USDC / cUSD) in contract storage.
+- Holds deposited ERC-20 tokens (USDC / USDm) in contract storage.
 - Enforces cryptographic permissions, platform fee routing, and automated deadline refunds without relying on any trusted intermediary.
 
 3. Complete Protocol Workflow
@@ -72,8 +72,8 @@ Step 5: Automated Safety Refund (No-Show Protection)
 - Core Standards: OpenZeppelin SafeERC20, ReentrancyGuard, EIP-712, Pausable
 
 4.2 Supported Tokens on Celo Mainnet
-- Celo Native USDC: 0xcebA97Fcedaa310E7D988936b9741FA007a9C05c
-- Celo Dollar (cUSD): 0x765DE816845861e75A25fCA122bb6898B8B1282a
+- Celo Native USDC: 0xcebA9300f2b948710d2653dD7B07f33A8B32118C
+- USDm (Mento Dollar, formerly cUSD): 0x765DE816845861e75A25fCA122bb6898B8B1282a
 - Celo Nigerian Naira (cNGN): 0xD994AE75470763bb53e7E41a99859f5b61C8B49b
 
 4.3 Data Structures
@@ -156,7 +156,7 @@ Celo offers substantial economic advantages for x402 settlement:
 - Agreement Deposit: ~85,000 gas (~0.0004 CELO = approx $0.0002 USD)
 - Agreement Release: ~65,000 gas (~0.0003 CELO = approx $0.00015 USD)
 - Total transaction friction per deal is less than one-tenth of a Nigerian Naira, making sub-50 USDC micro-transactions highly profitable and viable.
-- Native Fee Currency: Gas fees can be paid directly in USDC or cUSD, meaning users never need to hold native CELO to use Sivan AI on MiniPay.
+- Native Fee Currency: Gas fees can be paid directly in USDC or USDm, meaning users never need to hold native CELO to use Sivan AI on MiniPay.
 
 7. Security and Vulnerability Analysis
 

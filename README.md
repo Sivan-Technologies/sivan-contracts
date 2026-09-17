@@ -23,7 +23,7 @@ Official Links:
 
 ## 1. Overview
 
-sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainnet and MiniPay. It enables fully non-custodial milestone Service Agreements settling in Celo native USDC (primary), cUSD, and USDT.
+sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainnet and MiniPay. It enables fully non-custodial milestone Service Agreements settling in Celo native USDC (primary), USDm (Mento Dollar, formerly cUSD), and USDT.
 
 ### Key Features
 - Zero Custody: Sivan AI never holds user private keys. All funds are locked directly in an immutable smart contract on Celo Mainnet.
@@ -31,7 +31,7 @@ sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainn
 - Open Developer Revenue Share: Any external dApp, freelance marketplace, or AI agent can integrate the contract and earn up to 30% to 50% of the platform fee by supplying their partnerAddress.
 - Dual Cryptographic Attestation: Payments release only when both the buyer (via MiniPay EIP-712 signature) and Sivan AI (registered ERC-8004 Agent #9827) attest that milestones are satisfied.
 - Automated Timeout Auto-Refund: If milestone deadlines pass without delivery, buyers autonomously claim 100% of their funds with zero admin intervention.
-- Ultra-Low Celo Gas Friction: A release costs roughly 65,000 gas, and Celo supports paying that gas directly in USDC or cUSD via CIP-64. The dollar figure moves with gas price and the CELO price, so the gas number is quoted instead.
+- Ultra-Low Celo Gas Friction: A release costs roughly 65,000 gas, and Celo supports paying that gas directly in USDC or USDm via CIP-64. The dollar figure moves with gas price and the CELO price, so the gas number is quoted instead.
 
 ---
 

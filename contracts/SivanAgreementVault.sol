@@ -284,10 +284,10 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
      * @notice Fee in bps for an amount denominated in a token with `decimals`.
      * @dev THE TIERS WERE HARDCODED TO 6 DECIMALS.
      *
-     * `50 * 1e6` is correct for USDC. cUSD on Celo is 18 decimals, and the
-     * README lists cUSD as supported. With an 18dp token every realistic
-     * amount is astronomically larger than 500 * 1e6, so EVERY cUSD agreement
-     * silently landed in the cheapest 0.50% tier: a 10 cUSD micro payment was
+     * `50 * 1e6` is correct for USDC. USDm on Celo is 18 decimals, and the
+     * README lists USDm as supported. With an 18dp token every realistic
+     * amount is astronomically larger than 500 * 1e6, so EVERY USDm agreement
+     * silently landed in the cheapest 0.50% tier: a 10 USDm micro payment was
      * charged the whale rate. Tiers are now scaled to the token's own unit.
      */
     function calculateFeeForToken(uint256 amount, uint8 decimals) public view returns (uint256 feeBps) {
@@ -317,7 +317,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
      * @notice Deposit and lock milestone funds non-custodially into the vault.
      * @param agreementId Unique identifier for the service agreement.
      * @param contractor Destination address of the contractor.
-     * @param token ERC-20 token address (e.g. Celo USDC or cUSD).
+     * @param token ERC-20 token address (e.g. Celo USDC or USDm).
      * @param amount Total amount to lock.
      * @param deadlineHours Duration of the delivery window in hours.
      * @param partnerAddress Optional third-party developer or referral affiliate address.
@@ -339,7 +339,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
          *
          * setSupportedToken() populated `supportedTokens` and nothing ever
          * consulted it, so an owner who believed they had restricted the vault
-         * to USDC and cUSD had not: any ERC-20 could be locked here, including
+         * to USDC and USDm had not: any ERC-20 could be locked here, including
          * a worthless or malicious one.
          *
          * Gated on `tokenAllowlistEnforced` rather than enforced outright,
