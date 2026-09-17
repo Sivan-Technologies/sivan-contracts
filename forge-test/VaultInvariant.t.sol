@@ -170,14 +170,27 @@ contract VaultHandler is Test {
         if (agreementIds.length == 0) return;
         bytes32 id = agreementIds[idSeed % agreementIds.length];
         ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
-        if (a.state != ISivanAgreementVault.AgreementState.Funded) return;
+        bool funded = a.state == ISivanAgreementVault.AgreementState.Funded;
+        bool delivered = a.state == ISivanAgreementVault.AgreementState.Delivered;
+        if (!funded && !delivered) return;
 
-        // Warp past THIS agreement's deadline. Warping by an arbitrary amount
-        // from now can still land before it, and the contract then correctly
-        // refuses. That is the contract being right, not a bug, so the handler
-        // must not record it as a failed settlement.
-        if (block.timestamp <= a.deadlineTimestamp) {
-            vm.warp(a.deadlineTimestamp + bound(skip, 1, 1 hours));
+        /**
+         * Warp past whichever clock actually gates THIS agreement.
+         *
+         * A Funded agreement unlocks at its deadline; a Delivered one unlocks
+         * at deliveredAt + deliveryReviewWindow, which can be later. Warping
+         * only to the deadline would leave every delivered agreement reverting
+         * with "review window still open", and the handler would score the
+         * contract being correct as a failed settlement. That is precisely the
+         * class of bug that made an earlier version of this suite pass while
+         * testing nothing: 2,500 release calls that all bounced off the first
+         * require and never reached settlement.
+         */
+        uint256 unlockAt = delivered
+            ? a.deliveredAt + vault.deliveryReviewWindow()
+            : a.deadlineTimestamp;
+        if (block.timestamp <= unlockAt) {
+            vm.warp(unlockAt + bound(skip, 1, 1 hours));
         }
 
         uint256 before = token.balanceOf(address(vault));
@@ -199,6 +212,44 @@ contract VaultHandler is Test {
         if (a.state != ISivanAgreementVault.AgreementState.Funded) return;
         vm.prank(a.contractor);
         try vault.markDelivered(id, "proof") {} catch {}
+    }
+
+    /**
+     * Either party escalates. Included so the fuzzer actually reaches Disputed;
+     * without it the state is unreachable and every invariant that mentions it
+     * would be vacuously true.
+     */
+    function raiseDispute(uint256 idSeed, bool asBuyer) public {
+        if (agreementIds.length == 0) return;
+        bytes32 id = agreementIds[idSeed % agreementIds.length];
+        ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
+        if (a.state != ISivanAgreementVault.AgreementState.Funded &&
+            a.state != ISivanAgreementVault.AgreementState.Delivered) return;
+        vm.prank(asBuyer ? a.buyer : a.contractor);
+        try vault.raiseDispute(id, "fuzz") {} catch {}
+    }
+
+    /**
+     * The arbiter decides. Both directions are fuzzed, and both must conserve
+     * value exactly: paying the contractor moves the whole agreement out in
+     * three transfers, refunding the buyer moves it out in one.
+     */
+    function resolveDispute(uint256 idSeed, bool toContractor) public {
+        if (agreementIds.length == 0) return;
+        bytes32 id = agreementIds[idSeed % agreementIds.length];
+        ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
+        if (a.state != ISivanAgreementVault.AgreementState.Disputed) return;
+
+        uint256 before = token.balanceOf(address(vault));
+        vm.prank(vault.owner());
+        try vault.resolveDispute(id, toContractor, "fuzz") {
+            uint256 moved = before - token.balanceOf(address(vault));
+            ghostPaidOut += moved;
+            if (moved != a.totalAmount) ghostFailedSettlements++;
+            ghostExpectedBalance -= a.totalAmount;
+        } catch {
+            ghostFailedSettlements++;
+        }
     }
 
     /** The owner re-prices mid-flight. Fees already locked must not move. */
@@ -345,6 +396,56 @@ contract VaultInvariantTest is Test {
                 a.totalAmount * vault.MAX_FEE_BPS(),
                 "an agreement was charged above MAX_FEE_BPS"
             );
+        }
+    }
+
+    /**
+     * 3a. NO AGREEMENT CAN BE LOCKED FOREVER.
+     *
+     * The property the delivery lockup violated. Every agreement still holding
+     * money must have a reachable exit, and for the two states a single party
+     * can force the vault into, that exit must be reachable WITHOUT anyone's
+     * cooperation.
+     *
+     *   Funded     the buyer refunds once the deadline passes
+     *   Delivered  the buyer refunds once deliveredAt + reviewWindow passes
+     *   Disputed   the owner adjudicates; both parties consented to that by
+     *              escalating, and neither can be dragged there unilaterally
+     *
+     * The assertion is that the unlock time is FINITE and BOUNDED, not merely
+     * that one exists. Before the fix, a Delivered agreement's unlock time was
+     * infinity: no value of block.timestamp made refundBuyer succeed. Stating
+     * it as a bound is what makes the test fail if someone later raises
+     * MAX_DELIVERY_REVIEW_WINDOW to something absurd, which would technically
+     * still be "reachable" while being useless to a real buyer.
+     */
+    function invariant_everyOpenAgreementHasABoundedExit() public view {
+        uint256 maxWindow = vault.MAX_DELIVERY_REVIEW_WINDOW();
+        uint256 n = handler.agreementCount();
+        for (uint256 i = 0; i < n; i++) {
+            ISivanAgreementVault.Agreement memory a = vault.getAgreement(handler.agreementAt(i));
+
+            if (a.state == ISivanAgreementVault.AgreementState.Delivered) {
+                // Delivery must be stamped, or the unlock time is unknowable.
+                assertGt(a.deliveredAt, 0, "Delivered with no deliveredAt stamp");
+                // And it must have happened on or before the deadline, which
+                // is what stops a post-deadline claim from resetting the clock.
+                assertLe(
+                    a.deliveredAt,
+                    a.deadlineTimestamp,
+                    "delivery recorded after the deadline"
+                );
+                // The exit is reachable within a known, bounded horizon.
+                assertLe(
+                    a.deliveredAt + vault.deliveryReviewWindow(),
+                    a.deadlineTimestamp + maxWindow,
+                    "refund unlock is later than the worst permitted case"
+                );
+            }
+
+            if (a.state == ISivanAgreementVault.AgreementState.Disputed) {
+                assertGt(a.disputedAt, 0, "Disputed with no disputedAt stamp");
+            }
         }
     }
 

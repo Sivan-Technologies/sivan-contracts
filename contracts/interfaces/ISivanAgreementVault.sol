@@ -32,6 +32,16 @@ interface ISivanAgreementVault {
         address partnerAddress;
         uint256 partnerFeeAmount;
         string deliverableProof;
+        /**
+         * When markDelivered was called. Zero until then.
+         *
+         * This exists because "delivered" needs a clock of its own. Without it
+         * the Delivered state had no expiry, so entering it removed the buyer's
+         * timeout refund permanently. See DELIVERY_REVIEW_WINDOW.
+         */
+        uint256 deliveredAt;
+        /** When a dispute was raised. Zero unless state is Disputed. */
+        uint256 disputedAt;
     }
 
     event AgreementFunded(
@@ -82,6 +92,23 @@ interface ISivanAgreementVault {
         string reason
     );
 
+    /**
+     * @notice Emitted when the owner adjudicates a dispute.
+     * @param releasedToContractor True if funds went to the contractor, false
+     *        if they were returned to the buyer. There is no third option and
+     *        no partial split: the arbiter chooses one party, and the amount is
+     *        always the full agreement, so there is no discretion over how much.
+     */
+    event DisputeResolved(
+        bytes32 indexed agreementId,
+        address indexed arbiter,
+        bool releasedToContractor,
+        string reason
+    );
+
+    /** Emitted when the owner re-prices the delivery review window. */
+    event DeliveryReviewWindowUpdated(uint256 oldWindow, uint256 newWindow);
+
     function deposit(
         bytes32 agreementId,
         address contractor,
@@ -108,6 +135,25 @@ interface ISivanAgreementVault {
     function mutualRefund(
         bytes32 agreementId,
         bytes calldata contractorConsentSignature
+    ) external;
+
+    /**
+     * @notice Freezes an agreement for arbitration. Callable by either party.
+     * @dev The escape hatch from a standoff. Either side may raise a dispute
+     *      while funds are still held, which parks the agreement in Disputed
+     *      until the owner adjudicates.
+     */
+    function raiseDispute(bytes32 agreementId, string calldata reason) external;
+
+    /**
+     * @notice Owner adjudicates a disputed agreement.
+     * @param releaseToContractor True pays the contractor and takes the fee,
+     *        false returns the full amount to the buyer.
+     */
+    function resolveDispute(
+        bytes32 agreementId,
+        bool releaseToContractor,
+        string calldata reason
     ) external;
 
     function getAgreement(bytes32 agreementId) external view returns (Agreement memory);

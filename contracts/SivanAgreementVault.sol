@@ -50,6 +50,23 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
      */
     uint256 public constant MAX_AUTHORIZATION_WINDOW = 1 days;
 
+    /**
+     * Bounds on how long a delivery claim may suspend the buyer's refund.
+     *
+     * A delivery claim is an assertion, not a proof. Anyone entitled to make
+     * one can make a false one. The only question a contract can answer is how
+     * long that assertion is allowed to hold the money still, and the answer
+     * has to be finite.
+     *
+     * The floor is not a formality. A window of zero would let a buyer refund
+     * the instant a genuine delivery was filed, which is the mirror image of
+     * the bug being fixed: it would hand the buyer a way to take back funds for
+     * work that was actually done. Both parties need a period in which they
+     * cannot be rugged by the other, so the window is bounded at both ends.
+     */
+    uint256 public constant MIN_DELIVERY_REVIEW_WINDOW = 1 days;
+    uint256 public constant MAX_DELIVERY_REVIEW_WINDOW = 30 days;
+
     bytes32 public constant RELEASE_TYPEHASH = keccak256(
         "ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 expiry)"
     );
@@ -61,6 +78,19 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     bytes32 public constant CONTRACTOR_CONSENT_TYPEHASH = keccak256(
         "ContractorRefundConsent(bytes32 agreementId,uint256 nonce)"
     );
+
+    /**
+     * How long a delivery claim suspends the buyer's timeout refund.
+     *
+     * Marking delivered moves the deadline rather than cancelling it. The buyer
+     * gets this long to inspect the work and either release or dispute; if they
+     * do neither, the refund path reopens and they can reclaim the funds.
+     *
+     * Seven days is chosen to be long enough that a real contractor is not
+     * robbed by a buyer who simply stops responding, and short enough that a
+     * fake delivery claim is a week's delay rather than a permanent seizure.
+     */
+    uint256 public deliveryReviewWindow = 7 days;
 
     // ─── State Variables ─────────────────────────────────────────────────────
 
@@ -217,6 +247,26 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         emit TokenSupportUpdated(token, supported);
     }
 
+    /**
+     * @notice Re-prices how long a delivery claim suspends the buyer's refund.
+     * @dev Bounded at both ends rather than left to the owner's discretion.
+     *      An unbounded setter would recreate the very bug this window exists
+     *      to fix: an owner could set it to 1000 years and a delivery claim
+     *      would once again freeze buyer funds indefinitely. The upper bound
+     *      is the guard that makes the refund path genuinely unconditional.
+     *      The lower bound protects the contractor from a window so short that
+     *      a buyer can refund before anyone could review real work.
+     */
+    function setDeliveryReviewWindow(uint256 newWindow) external onlyOwner {
+        require(
+            newWindow >= MIN_DELIVERY_REVIEW_WINDOW && newWindow <= MAX_DELIVERY_REVIEW_WINDOW,
+            "Review window out of bounds"
+        );
+        uint256 old = deliveryReviewWindow;
+        deliveryReviewWindow = newWindow;
+        emit DeliveryReviewWindowUpdated(old, newWindow);
+    }
+
     function pause() external onlyOwner {
         _pause();
     }
@@ -365,7 +415,9 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             state: AgreementState.Funded,
             partnerAddress: partnerAddress,
             partnerFeeAmount: partnerFeeAmount,
-            deliverableProof: ""
+            deliverableProof: "",
+            deliveredAt: 0,
+            disputedAt: 0
         });
 
         emit AgreementFunded(
@@ -384,6 +436,28 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
     /**
      * @notice Signals that milestone deliverables have been submitted.
+     *
+     * @dev A DELIVERY CLAIM COULD FREEZE THE BUYER'S MONEY FOREVER.
+     *
+     * This function had no deadline check, and refundBuyer only ran from
+     * Funded. So a contractor who delivered nothing could watch the deadline
+     * pass, front-run the buyer's refund transaction with any nonempty string,
+     * and move the agreement to Delivered. From there:
+     *
+     *   - refundBuyer      reverted, wrong state
+     *   - releasePayment   needed the buyer, who would refuse
+     *   - mutualRefund     needed the contractor, who would refuse
+     *   - raiseDispute     did not exist
+     *
+     * The funds were unreachable by every party, permanently. Not stolen,
+     * which is why it is easy to miss: no attacker profits, so it reads as
+     * merely untidy. But for the buyer the outcome is identical to theft, and
+     * the cost to the griefer is one transaction. A ransom demand follows
+     * naturally, and the contract offers no way to resist it.
+     *
+     * Two changes close it. Delivery is no longer accepted after the deadline,
+     * and delivery now MOVES the deadline instead of removing it. See
+     * refundBuyer for the second half.
      */
     function markDelivered(
         bytes32 agreementId,
@@ -393,9 +467,20 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         require(agr.state == AgreementState.Funded, "Agreement not in funded state");
         require(msg.sender == agr.contractor || msg.sender == agr.buyer, "Unauthorized deliverer");
         require(bytes(proofUrl).length > 0, "Proof URL required");
+        /**
+         * Work delivered after the deadline is late, and a late delivery cannot
+         * reach back and cancel a refund right that has already vested. Once
+         * block.timestamp passes the deadline the buyer is entitled to their
+         * money, and nothing the contractor does unilaterally should take that
+         * away. A contractor who finishes late can still be paid: the buyer may
+         * release from Funded at any time, and releasePayment permits exactly
+         * that. What they cannot do is force the buyer to wait.
+         */
+        require(block.timestamp <= agr.deadlineTimestamp, "Deadline passed, delivery too late");
 
         agr.state = AgreementState.Delivered;
         agr.deliverableProof = proofUrl;
+        agr.deliveredAt = block.timestamp;
 
         emit DeliverableSubmitted(agreementId, agr.contractor, proofUrl);
     }
@@ -558,9 +643,41 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
      */
     function refundBuyer(bytes32 agreementId) external override nonReentrant {
         Agreement storage agr = agreements[agreementId];
-        require(agr.state == AgreementState.Funded, "Cannot refund in current state");
         require(msg.sender == agr.buyer, "Only buyer can trigger timeout refund");
-        require(block.timestamp > agr.deadlineTimestamp, "Deadline has not yet expired");
+
+        /**
+         * DELIVERY DELAYS THE REFUND. IT DOES NOT CANCEL IT.
+         *
+         * Refund used to be reachable only from Funded, which meant a single
+         * delivery claim closed the exit permanently. Now Delivered is also
+         * refundable, just later: the buyer gets deliveryReviewWindow to
+         * inspect the work, and if they neither release nor dispute in that
+         * time the refund reopens.
+         *
+         * The reason the window is measured from deliveredAt rather than from
+         * the original deadline is that a contractor who delivers early should
+         * not get a shorter review period than one who delivers on the last
+         * day. Anchoring to the deadline would have punished promptness.
+         *
+         * An honest contractor is unaffected: a buyer who has genuinely
+         * received work has every reason to release, and if they stonewall to
+         * run out the clock the contractor can raiseDispute, which freezes the
+         * agreement and blocks this path until the owner adjudicates.
+         *
+         * Disputed is deliberately NOT refundable here. Once either side has
+         * escalated, unilateral exits are closed for both of them and only
+         * resolveDispute can move the money.
+         */
+        if (agr.state == AgreementState.Funded) {
+            require(block.timestamp > agr.deadlineTimestamp, "Deadline has not yet expired");
+        } else if (agr.state == AgreementState.Delivered) {
+            require(
+                block.timestamp > agr.deliveredAt + deliveryReviewWindow,
+                "Delivery review window still open"
+            );
+        } else {
+            revert("Cannot refund in current state");
+        }
 
         agr.state = AgreementState.Refunded;
         uint256 refundAmount = agr.totalAmount;
@@ -602,6 +719,134 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         IERC20(agr.token).safeTransfer(agr.buyer, refundAmount);
 
         emit AgreementRefunded(agreementId, agr.buyer, refundAmount, "Mutual refund agreed by parties");
+    }
+
+    // ─── Safety Lifecycle: Dispute ───────────────────────────────────────────
+
+    /**
+     * @notice Freezes an agreement for arbitration. Either party may call it.
+     *
+     * @dev THE STATE EXISTED; THE DOOR DID NOT.
+     *
+     * AgreementState.Disputed was declared in the enum and AgreementDisputed
+     * was declared as an event, but no function ever set the state or emitted
+     * the event. Both were unreachable. mutualRefund even accepted Disputed as
+     * a valid starting state, handling a case that could not occur.
+     *
+     * That is worse than an omission. A reader auditing the enum sees a dispute
+     * path and reasonably assumes deadlocks have an arbiter of last resort.
+     * There was none, which is precisely why the delivery lockup had no cure.
+     *
+     * WHY EITHER PARTY, AND WHY NOT THE OWNER.
+     *
+     * Both sides can be the wronged one. A buyer facing a false delivery claim
+     * needs this, and so does a contractor who delivered real work to a buyer
+     * now stalling until the review window lapses. Restricting it to one side
+     * would just relocate the standoff.
+     *
+     * The owner cannot raise a dispute. Letting the operator freeze arbitrary
+     * agreements would hand it a unilateral power over funds it does not own,
+     * which is the custody this vault exists to avoid. It can only adjudicate
+     * disputes the parties themselves raise.
+     */
+    function raiseDispute(
+        bytes32 agreementId,
+        string calldata reason
+    ) external override {
+        Agreement storage agr = agreements[agreementId];
+        require(
+            agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered,
+            "Cannot dispute in current state"
+        );
+        require(
+            msg.sender == agr.buyer || msg.sender == agr.contractor,
+            "Only a party may dispute"
+        );
+        require(bytes(reason).length > 0, "Reason required");
+
+        agr.state = AgreementState.Disputed;
+        agr.disputedAt = block.timestamp;
+
+        emit AgreementDisputed(agreementId, msg.sender, reason);
+    }
+
+    /**
+     * @notice Owner adjudicates a disputed agreement, moving funds one way.
+     *
+     * @dev THE ARBITER'S POWER IS DELIBERATELY NARROW.
+     *
+     * This is the only function where a party other than buyer or contractor
+     * can move money, so its authority is fenced in on every side:
+     *
+     *   - It runs ONLY from Disputed, which only a party can enter. The owner
+     *     cannot reach into a healthy agreement.
+     *   - It is a binary choice between two addresses fixed at deposit time.
+     *     The owner cannot name a recipient, cannot split, cannot take a cut,
+     *     cannot send funds to itself. It can only answer "which of these two".
+     *   - It cannot change the amount. Payout equals netAmount and the fee
+     *     equals the fee computed when the agreement was funded.
+     *
+     * So the worst a compromised owner can do is decide a genuine dispute
+     * wrongly, in favour of one of the two people who were already arguing
+     * over that exact money. It cannot steal, and it cannot touch anything
+     * nobody has disputed. That is a meaningfully smaller blast radius than
+     * an admin withdrawal function, which is the usual shape of this feature
+     * and the one that keeps appearing in escrow exploits.
+     *
+     * NOT PAUSABLE, ON PURPOSE. A paused vault must not be able to trap
+     * disputed funds; see refundBuyer and mutualRefund, which are likewise
+     * exempt. Pause stops new money entering and stops the happy path, but it
+     * must never become a way to freeze money already inside.
+     */
+    function resolveDispute(
+        bytes32 agreementId,
+        bool releaseToContractor,
+        string calldata reason
+    ) external override onlyOwner nonReentrant {
+        Agreement storage agr = agreements[agreementId];
+        require(agr.state == AgreementState.Disputed, "Agreement is not disputed");
+
+        if (releaseToContractor) {
+            agr.state = AgreementState.Released;
+
+            uint256 protocolFee = agr.feeAmount - agr.partnerFeeAmount;
+
+            IERC20(agr.token).safeTransfer(agr.contractor, agr.netAmount);
+
+            if (protocolFee > 0 && feeCollector != address(0)) {
+                IERC20(agr.token).safeTransfer(feeCollector, protocolFee);
+            }
+
+            if (agr.partnerFeeAmount > 0 && agr.partnerAddress != address(0)) {
+                IERC20(agr.token).safeTransfer(agr.partnerAddress, agr.partnerFeeAmount);
+            }
+
+            emit AgreementReleased(
+                agreementId,
+                agr.buyer,
+                agr.contractor,
+                agr.netAmount,
+                protocolFee,
+                agr.partnerFeeAmount,
+                agr.deliveredAt != 0
+            );
+        } else {
+            /**
+             * A refunded buyer pays no fee. The protocol charges for settling a
+             * deal, and a deal resolved back to the buyer did not settle.
+             * Keeping the fee here would give the operator a financial interest
+             * in the outcome of disputes it is adjudicating, which is exactly
+             * the incentive an arbiter must not have.
+             */
+            agr.state = AgreementState.Refunded;
+            uint256 refundAmount = agr.totalAmount;
+
+            IERC20(agr.token).safeTransfer(agr.buyer, refundAmount);
+
+            emit AgreementRefunded(agreementId, agr.buyer, refundAmount, reason);
+        }
+
+        emit DisputeResolved(agreementId, msg.sender, releaseToContractor, reason);
     }
 
     // ─── View Helpers ────────────────────────────────────────────────────────
