@@ -3,7 +3,10 @@ pragma solidity ^0.8.24;
 
 /**
  * @title ISivanAgreementVault
- * @notice Interface for Sivan AI Non-Custodial x402 Service Agreement Settlement Facility on Celo.
+ * @notice Interface for the Sivan AI Non-Custodial Service Agreement Settlement
+ *         Facility on Celo. This is Layer 2 of the x402 stack: the on-chain
+ *         facility that off-chain HTTP 402 coordination settles into, not an
+ *         x402 protocol implementation itself.
  * @dev Enables autonomous milestone locking, dual-attestation release, dynamic fees, and partner splits.
  */
 interface ISivanAgreementVault {

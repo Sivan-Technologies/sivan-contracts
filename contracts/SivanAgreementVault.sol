@@ -14,7 +14,22 @@ import "./interfaces/ISivanAgreementVault.sol";
 /**
  * @title SivanAgreementVault
  * @author Samson Micheal (Sivan Technology)
- * @notice Autonomous Non-Custodial x402 Service Agreement Settlement Facility on Celo.
+ * @notice Autonomous Non-Custodial Service Agreement Settlement Facility on Celo.
+ * @dev LAYER 2 OF THE SIVAN x402 STACK. This contract is the on-chain
+ *      settlement facility, not an x402 implementation.
+ *
+ *      x402 is an HTTP standard: a server answers 402 Payment Required with
+ *      settlement terms, a client signs, a facilitator verifies. That flow
+ *      lives in Sivan's backend (Layer 1) and cannot live in Solidity. What
+ *      this contract provides is what Layer 1 settles INTO: escrowed funds,
+ *      EIP-712 release authorization, agent attestation, and deadline refunds.
+ *
+ *      Stated plainly because the distinction is checkable. Anyone opening
+ *      this file finds deposit/markDelivered/releasePayment/refund and no 402
+ *      handling, so a summary claiming the contract "implements x402" reads as
+ *      overstatement and casts doubt on the parts that are real.
+ *
+ *      See docs/CELO_X402_SMART_CONTRACT_SPECIFICATION.md section 2.
  * @dev Fully non-custodial milestone vault supporting dynamic fees, developer partner splits,
  *      and dual cryptographic attestation (Buyer + Sivan AI Registered Agent #9827).
  */
