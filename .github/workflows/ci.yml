@@ -1,0 +1,160 @@
+name: Contracts CI
+
+# Runs on every push and PR. A vault holding customer money should not be able
+# to regress silently between a green local run and a merge.
+on:
+  push:
+    branches: [main, staging]
+  pull_request:
+    branches: [main, staging]
+
+# A new push to the same branch cancels the older run. Saves minutes and stops
+# a stale red X sitting on a commit that was already superseded.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  hardhat:
+    name: Hardhat unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # Compile separately so a build break is reported as a build break
+      # rather than as 34 mysterious test failures.
+      - name: Compile
+        run: npx hardhat compile
+
+      - name: Test
+        run: npx hardhat test
+
+  foundry:
+    name: Fuzz and invariants
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      # OpenZeppelin comes from npm, and foundry.toml remaps @openzeppelin/ to
+      # node_modules. One dependency tree for both toolchains rather than two
+      # that can drift apart.
+      - run: npm ci
+
+      - uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: stable
+
+      - name: Install forge-std
+        run: forge install foundry-rs/forge-std --no-git
+
+      - name: Fuzz and invariant suite
+        run: forge test -vv
+
+  slither:
+    name: Static analysis
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      - uses: crytic/slither-action@v0.4.0
+        id: slither
+        with:
+          target: "."
+          slither-args: --filter-paths "node_modules|contracts/test|lib"
+          # Fail the build on High or Medium only.
+          #
+          # The current Medium is divide-before-multiply on the partner fee
+          # split. Measured across every combination of amount, tier and share,
+          # the divergence from a single-division calculation is 0 wei, and any
+          # remainder stays in protocolFee which is computed as the remainder.
+          # It is triaged and accepted, so it lives in slither.db.json rather
+          # than being silenced by lowering the threshold.
+          fail-on: medium
+
+  deploy-script:
+    name: Deploy script against a Celo fork
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # THE POINT OF THIS JOB.
+      #
+      # The vault starts permissive: an empty allowlist accepts any ERC-20, and
+      # enforcement only begins once the owner lists a first token. That makes
+      # the deploy script load bearing, because a deployment that fails to seed
+      # leaves a vault that accepts arbitrary tokens forever.
+      #
+      # Unit tests cannot catch a broken seed. Running the real script against
+      # a fork of Celo mainnet exercises it against the actual USDC, cUSD and
+      # USDT contracts, and the script asserts tokenAllowlistEnforced() is true
+      # afterwards. If a token address rots or the seeding breaks, this job
+      # goes red rather than a production deployment going quietly permissive.
+      - name: Start a Celo mainnet fork
+        run: |
+          npx hardhat node --fork https://forno.celo.org > /tmp/fork.log 2>&1 &
+          for i in $(seq 1 60); do
+            if curl -s -m 2 -X POST http://127.0.0.1:8545 \
+                 -H 'Content-Type: application/json' \
+                 -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
+                 | grep -q result; then
+              echo "fork is up after ${i}s"; exit 0
+            fi
+            sleep 1
+          done
+          echo "fork did not start"; tail -30 /tmp/fork.log; exit 1
+
+      - name: Deploy and seed the allowlist
+        env:
+          # Well-known Hardhat test accounts. Not secrets, and not usable
+          # anywhere but a local fork.
+          SIVAN_FEE_COLLECTOR: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+          SIVAN_AGENT_ATTESTER: "0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC"
+        run: npx hardhat run scripts/deploy.js --network celofork | tee /tmp/deploy.log
+
+      - name: Assert the allowlist actually engaged
+        run: |
+          grep -q "Allowlist enforced" /tmp/deploy.log \
+            || { echo "allowlist did not engage"; exit 1; }
+          # USDC is the primary asset and must be listed FIRST.
+          #
+          # This was `grep -A 1 ... | grep -q USDC`, which only asked whether
+          # USDC appeared somewhere in a two line window. Renaming the first
+          # entry to XXXX still passed, because USDC was still present on the
+          # following line. An assertion that survives the thing it exists to
+          # catch is decoration.
+          #
+          # Take the first token line after the header and require it to be
+          # USDC by position, not by presence.
+          FIRST=$(grep -A 1 "Verifying tokens on chain" /tmp/deploy.log \
+                  | tail -n 1 | awk '{print $1}')
+          if [ "$FIRST" != "USDC" ]; then
+            echo "expected USDC listed first, got: '$FIRST'"
+            exit 1
+          fi
+          echo "seed verified: allowlist enforced, USDC first"

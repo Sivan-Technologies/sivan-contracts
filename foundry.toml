@@ -1,0 +1,27 @@
+[profile.default]
+src = "contracts"
+out = "forge-out"
+test = "forge-test"
+libs = ["node_modules", "lib"]
+solc_version = "0.8.24"
+evm_version = "cancun"
+optimizer = true
+optimizer_runs = 200
+# deposit() carries enough locals to exceed the EVM's 16 stack slots once
+# fee-on-transfer balance measurement is included. Matches hardhat.config.cjs.
+via_ir = true
+
+# OpenZeppelin is installed through npm rather than forge install, so map the
+# import prefix at the node_modules path the Hardhat build already uses. One
+# dependency tree, not two that can drift apart.
+remappings = ["@openzeppelin/=node_modules/@openzeppelin/", "forge-std/=lib/forge-std/src/"]
+
+[fuzz]
+runs = 512
+
+[invariant]
+# Sequences of random calls from random actors. depth is how many calls per
+# run; more depth finds multi-step bugs that single-call fuzzing cannot.
+runs = 256
+depth = 50
+fail_on_revert = false

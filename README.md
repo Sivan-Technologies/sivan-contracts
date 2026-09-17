@@ -1,6 +1,16 @@
 # Sivan Celo Smart Contracts (sivan-contracts)
 
-Autonomous, Non-Custodial x402 Service Agreement Settlement Facility on Celo for Sivan AI and Web3 Builders.
+Autonomous, Non-Custodial Service Agreement Settlement Facility on Celo for Sivan AI and Web3 Builders.
+
+**Where this sits.** Sivan's x402 stack has two layers. Layer 1 is off-chain:
+the backend answers HTTP 402 Payment Required with settlement terms and prepares
+EIP-712 payloads. Layer 2 is this contract: the on-chain facility those payments
+settle into, holding escrowed funds and enforcing release, attestation and
+deadline refunds.
+
+This repository is Layer 2 only. It contains no HTTP 402 handling, because that
+is not something a Solidity contract can do. See
+[the specification](docs/CELO_X402_SMART_CONTRACT_SPECIFICATION.md#2-the-two-layers-of-x402-on-celo).
 
 Official Links:
 - Website: https://sivantech.online

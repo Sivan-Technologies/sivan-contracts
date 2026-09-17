@@ -3,7 +3,10 @@ pragma solidity ^0.8.24;
 
 /**
  * @title ISivanAgreementVault
- * @notice Interface for Sivan AI Non-Custodial x402 Service Agreement Settlement Facility on Celo.
+ * @notice Interface for the Sivan AI Non-Custodial Service Agreement Settlement
+ *         Facility on Celo. This is Layer 2 of the x402 stack: the on-chain
+ *         facility that off-chain HTTP 402 coordination settles into, not an
+ *         x402 protocol implementation itself.
  * @dev Enables autonomous milestone locking, dual-attestation release, dynamic fees, and partner splits.
  */
 interface ISivanAgreementVault {
@@ -48,13 +51,22 @@ interface ISivanAgreementVault {
         string proofUrl
     );
 
+    /**
+     * @param deliveryRecorded True when the contractor had marked the milestone
+     *        delivered before release, which is also when an agent attestation
+     *        was required. False when the buyer released directly from Funded.
+     *        Carried on the event so a dispute can later distinguish "the buyer
+     *        paid against verified delivery" from "the buyer simply paid",
+     *        without replaying state.
+     */
     event AgreementReleased(
         bytes32 indexed agreementId,
         address indexed buyer,
         address indexed contractor,
         uint256 netAmount,
         uint256 protocolFee,
-        uint256 partnerFee
+        uint256 partnerFee,
+        bool deliveryRecorded
     );
 
     event AgreementRefunded(

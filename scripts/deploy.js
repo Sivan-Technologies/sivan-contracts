@@ -28,10 +28,22 @@ const hre = require("hardhat");
  * 1e6, and why this list is worth verifying rather than trusting.
  */
 
+/**
+ * ORDER IS DELIBERATE: USDC FIRST.
+ *
+ * USDC is the primary settlement asset and the one every integration is tested
+ * against first, so it is listed first and appears first in the deploy output.
+ * cUSD and USDT follow.
+ *
+ * This is not cosmetic. The order here is the order the allowlist transaction
+ * enumerates, the order the log prints, and the order anyone reading this file
+ * will assume reflects priority. Leading with cUSD implied Celo's native
+ * stablecoin was the default, which is not how the product is being rolled out.
+ */
 const MAINNET_TOKENS = {
-  cUSD: "0x765DE816845861e75A25fCA122bb6898B8B1282a",
-  USDC: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C",
-  USDT: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e",
+  USDC: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C", //  6 dp, primary
+  cUSD: "0x765DE816845861e75A25fCA122bb6898B8B1282a", // 18 dp, symbol reports USDm
+  USDT: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e", //  6 dp, symbol reports USD-T
 };
 
 /**
@@ -42,7 +54,25 @@ const MAINNET_TOKENS = {
  * ends up allowlisting an address that is not the token anyone thinks it is.
  */
 const ALFAJORES_TOKENS = {
+  /**
+   * USDC ON ALFAJORES IS DELIBERATELY ABSENT.
+   *
+   * USDC is the first asset we test with, so it belongs here. It is not here
+   * because I could not reach an Alfajores RPC to read symbol() and decimals()
+   * back, and every other address in this file was verified that way before
+   * being committed.
+   *
+   * Set ALFAJORES_USDC in the environment and the script will verify it on
+   * chain at deploy time and list it first. If it does not answer symbol(),
+   * the script skips it and says so rather than allowlisting a wrong address.
+   *
+   * A guessed constant in an allowlist is worse than an omission: the vault
+   * would accept a token nobody intended, and the mistake is invisible until
+   * someone deposits.
+   */
+  ...(process.env.ALFAJORES_USDC ? { USDC: process.env.ALFAJORES_USDC } : {}),
   cUSD: "0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1",
+  ...(process.env.ALFAJORES_USDT ? { USDT: process.env.ALFAJORES_USDT } : {}),
 };
 
 /** Read symbol() and decimals() back off chain so we never list a guess. */
@@ -56,8 +86,37 @@ async function describeToken(address) {
 }
 
 async function main() {
-  const [deployer] = await hre.ethers.getSigners();
   const net = hre.network.name;
+
+  /**
+   * Check the deployer key BEFORE touching the network.
+   *
+   * hre.ethers.getSigners() opens an RPC connection, so a missing key
+   * surfaced as an ENOTFOUND DNS error rather than "you forgot the key".
+   * Diagnosing a config mistake from a network stack trace wastes time that
+   * a one-line check prevents.
+   */
+  if (net !== "hardhat" && net !== "localhost" && net !== "celofork") {
+    const key = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
+    if (!key) {
+      throw new Error(
+        `DEPLOYER_PRIVATE_KEY is empty, so there is nothing to sign the ${net} ` +
+          "deployment with.\n" +
+          "  1. cp .env.example .env\n" +
+          "  2. generate a FRESH key (cast wallet new)\n" +
+          "  3. fund it at https://faucet.celo.org for Alfajores"
+      );
+    }
+    const normalised = key.startsWith("0x") ? key : `0x${key}`;
+    if (!/^0x[0-9a-fA-F]{64}$/.test(normalised)) {
+      throw new Error(
+        "DEPLOYER_PRIVATE_KEY is not a 32-byte hex key. Expected 64 hex " +
+          "characters, optionally 0x-prefixed."
+      );
+    }
+  }
+
+  const [deployer] = await hre.ethers.getSigners();
 
   console.log("Deploying SivanAgreementVault");
   console.log("  network :", net, "(chainId", hre.network.config.chainId + ")");
@@ -123,6 +182,14 @@ async function main() {
 
     if (addresses.length === 0) {
       throw new Error("No tokens verified. Refusing to leave the vault permissive.");
+    }
+
+    if (!Object.keys(tokens).includes("USDC")) {
+      console.log(
+        "\n  NOTE: USDC is not in this network's list. It is the primary test asset.\n" +
+        "  Set ALFAJORES_USDC to the verified address and redeploy, or list it\n" +
+        "  afterwards with setSupportedToken()."
+      );
     }
 
     const tx = await vault.setSupportedTokens(addresses, true);
