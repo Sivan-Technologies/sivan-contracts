@@ -164,51 +164,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # THE OLD TOKEN NAME MUST NOT COME BACK.
-      #
-      # Mento rebranded cUSD to USDm (Mento Dollar). The contract addresses and
-      # the 18 decimal standard are unchanged, but the token itself now reports
-      # symbol()="USDm" and name()="Mento Dollar" on both Celo Mainnet and Celo
-      # Sepolia. Anything still printing "cUSD" or "Celo Dollar" does not merely
-      # look dated, it contradicts the contract it claims to describe.
-      #
-      # This is a build failure rather than a review checklist item for the same
-      # reason the em-dash and buzzword guards are: a convention nobody enforces
-      # is a convention that decays one pull request at a time.
-      - name: Reject the retired token naming
-        run: |
-          fail=0
-
-          # "Celo Dollar" is factually wrong now. There is no legitimate use.
-          # This workflow necessarily mentions both retired names in order to
-          # forbid them, so it must exclude itself. Without that the guard
-          # fails on every run and stops being informative, which is worse than
-          # no guard: a check that is always red gets ignored, then disabled.
-          if grep -rn "Celo Dollar" \
-               --exclude-dir={node_modules,.git,artifacts,cache,lib,forge-out,deployments} \
-               --exclude="ci.yml" \
-               . ; then
-            echo "::error::'Celo Dollar' is the retired name. The chain reports 'Mento Dollar'."
-            fail=1
-          fi
-
-          # Bare "cUSD" is allowed in exactly one shape: an explicit historical
-          # note such as "USDm (Mento Dollar, formerly cUSD)". Anything else is
-          # a live reference to a name that no longer exists.
-          #
-          # Excluding .env because it is untracked local config, and
-          # deployments/ because those are recorded artifacts of past runs.
-          hits=$(grep -rn "cUSD" \
-                   --exclude-dir={node_modules,.git,artifacts,cache,lib,forge-out,deployments} \
-                   --exclude=".env" --exclude="ci.yml" \
-                   . \
-                 | grep -v "formerly cUSD" || true)
-          if [ -n "$hits" ]; then
-            echo "$hits"
-            echo "::error::bare 'cUSD' found. Use 'USDm', or 'USDm (Mento Dollar, formerly cUSD)' on first mention."
-            fail=1
-          fi
-
-          [ "$fail" -eq 0 ] && echo "naming clean: USDm everywhere, no retired names"
-          exit $fail
+      # Portable across every Sivan repository. Copy scripts/check-usdm-naming.sh
+      # into any repo and add this job; the rules live in the script, not here,
+      # so they stay identical everywhere rather than drifting per repo.
+      - run: ./scripts/check-usdm-naming.sh
