@@ -47,32 +47,31 @@ const MAINNET_TOKENS = {
 };
 
 /**
- * Alfajores testnet. Only cUSD is asserted here because it is the one address
- * on the testnet that is stable and widely published. Additional testnet
- * assets should be verified on chain before being added, the same way the
- * mainnet list was. An unverified constant in a deploy script is how a vault
- * ends up allowlisting an address that is not the token anyone thinks it is.
+ * CELO SEPOLIA TESTNET (chain 11142220). This is where testnet deployments go.
+ *
+ * Alfajores was sunset on 30 Sep 2025 with Ethereum Holesky. Celo Sepolia
+ * replaced it with a clean slate, which means every Alfajores address is
+ * meaningless here. The old hardcoded Alfajores cUSD constant,
+ * 0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1, returns an empty eth_getCode on
+ * Celo Sepolia: it is not a token on this chain, it is nothing at all. Listing
+ * it would have allowlisted a blank address.
+ *
+ * Every address below was read back off Celo Sepolia with eth_call on symbol()
+ * and decimals(), and checked for non-empty bytecode, before being written
+ * here. Same standard as the mainnet list:
+ *
+ *   0x01C5C0122039549AD1493B8220cABEdD739BC44E  symbol USDC         6 dp
+ *   0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b  symbol USDm (cUSD) 18 dp
+ *   0xd077A400968890Eacc75cdc901F0356c943e4fDb  symbol USD-T        6 dp
+ *
+ * USDC first, matching mainnet and matching how the product is rolled out.
+ * The 6dp/18dp spread is present on testnet too, so the per-token fee tier
+ * scaling gets exercised here rather than first meeting it on mainnet.
  */
-const ALFAJORES_TOKENS = {
-  /**
-   * USDC ON ALFAJORES IS DELIBERATELY ABSENT.
-   *
-   * USDC is the first asset we test with, so it belongs here. It is not here
-   * because I could not reach an Alfajores RPC to read symbol() and decimals()
-   * back, and every other address in this file was verified that way before
-   * being committed.
-   *
-   * Set ALFAJORES_USDC in the environment and the script will verify it on
-   * chain at deploy time and list it first. If it does not answer symbol(),
-   * the script skips it and says so rather than allowlisting a wrong address.
-   *
-   * A guessed constant in an allowlist is worse than an omission: the vault
-   * would accept a token nobody intended, and the mistake is invisible until
-   * someone deposits.
-   */
-  ...(process.env.ALFAJORES_USDC ? { USDC: process.env.ALFAJORES_USDC } : {}),
-  cUSD: "0x874069Fa1Eb16D44d622F2e0Ca25eeA172369bC1",
-  ...(process.env.ALFAJORES_USDT ? { USDT: process.env.ALFAJORES_USDT } : {}),
+const CELO_SEPOLIA_TOKENS = {
+  USDC: "0x01C5C0122039549AD1493B8220cABEdD739BC44E", //  6 dp, primary
+  cUSD: "0xdE9e4C3ce781b4bA68120d6261cbad65ce0aB00b", // 18 dp, symbol reports USDm
+  USDT: "0xd077A400968890Eacc75cdc901F0356c943e4fDb", //  6 dp, symbol reports USD-T
 };
 
 /** Read symbol() and decimals() back off chain so we never list a guess. */
@@ -96,7 +95,20 @@ async function main() {
    * Diagnosing a config mistake from a network stack trace wastes time that
    * a one-line check prevents.
    */
-  if (net !== "hardhat" && net !== "localhost" && net !== "celofork") {
+  if (net === "alfajores") {
+    throw new Error(
+      "Alfajores was sunset on 30 Sep 2025 and its RPC no longer answers.\n" +
+        "Celo's live testnet is Celo Sepolia (chain 11142220). Deploy with:\n" +
+        "  npx hardhat run scripts/deploy.js --network celoSepolia"
+    );
+  }
+
+  if (
+    net !== "hardhat" &&
+    net !== "localhost" &&
+    net !== "celofork" &&
+    net !== "celosepoliafork"
+  ) {
     const key = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
     if (!key) {
       throw new Error(
@@ -159,8 +171,8 @@ async function main() {
   const tokens =
     net === "celo" || net === "celofork"
       ? MAINNET_TOKENS
-      : net === "alfajores"
-      ? ALFAJORES_TOKENS
+      : net === "celoSepolia" || net === "celosepoliafork"
+      ? CELO_SEPOLIA_TOKENS
       : null;
 
   if (!tokens) {
