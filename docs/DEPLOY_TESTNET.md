@@ -168,7 +168,72 @@ and its V2 replacement requires an Etherscan key.
 Then open `https://celo-sepolia.blockscout.com/address/<VAULT_ADDRESS>` and
 confirm the Contract tab shows green source.
 
-## Step 7: send me the output
+## Step 7: prove the attester key is controlled
+
+Do this before the lifecycle run, and before any real user touches the vault.
+
+```bash
+ATTESTER_PRIVATE_KEY=0x... VAULT=<VAULT_ADDRESS> \
+  npx hardhat run scripts/check-attester.js --network celoSepolia
+```
+
+Read only. Sends nothing, costs no gas.
+
+`agentAttester` is just an address written at construction. Setting it proves
+nothing about whether anyone can still sign for it, and if that key was
+generated once and never saved, **every agreement that reaches `Delivered`
+becomes unreleasable**: `releasePayment` demands an attestation whenever
+`state == Delivered`, and only that key can produce one.
+
+The failure is silent and delayed. Deposits work, deliveries work, and the
+break only surfaces when the first contractor tries to get paid, by which point
+there is customer money in the contract.
+
+The script signs a probe attestation over an agreement id that will never
+exist, then recovers it against the domain separator read back **from the
+contract itself** rather than one assembled locally. A local check with ethers
+would only prove ethers agrees with itself; it would pass even with a wrong
+domain, which is exactly how the delegated release path stayed broken.
+
+Without the key the script exits non-zero and says UNPROVEN rather than
+reporting success.
+
+## Step 8: run the full lifecycle with test USDC
+
+```bash
+VAULT=<VAULT_ADDRESS> npx hardhat run scripts/lifecycle.js --network celoSepolia
+```
+
+Four complete agreements against the real Circle USDC contract:
+
+1. deposit, markDelivered, releasePayment with a live agent attestation
+2. deposit, deadline passes, refundBuyer
+3. deposit, deliver, buyer disputes, owner resolves to the buyer
+4. the griefing attack: a post-deadline delivery claim must be refused
+
+Every step checks **balances and receipts**, not status messages. 21 assertions
+covering fee arithmetic, that the arbiter takes no fee on a dispute refund, and
+that the vault is drained to zero after each agreement.
+
+Rehearse it free against a fork first:
+
+```bash
+anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8546 --chain-id 11142220
+VAULT=<VAULT_ADDRESS> npx hardhat run scripts/lifecycle.js --network celosepoliafork
+```
+
+On a fork it funds the buyer by writing the USDC balance slot. **On a live
+network it refuses to fabricate balances** and requires the buyer to already
+hold test USDC, because a lifecycle test that fakes its own funding is not
+testing the thing it claims to test.
+
+A live run writes every receipt to `deployments/lifecycle-*.json` and prints
+Blockscout links. Those links are the artifact worth showing: fifteen real
+transactions demonstrating deposit, release, refund and dispute resolution on a
+public chain.
+
+## Step 9: send me the output
+
 
 Paste the deploy log and the vault address. Everything worth checking after
 that is read-only, so it costs nothing and needs no key:
