@@ -66,6 +66,14 @@ Requirements: Node.js v20+, npm
 
 ## 4. Deployment
 
+### Review-only Vera integration plan
+
+See [Sivan–Vera API mapping](docs/SIVAN_VERA_API_INTEGRATION.md) for the current
+Vera routes, proposed Sivan adapter, authentication, idempotency limitations and
+human-review boundary. This is a specification, not a deployed integration.
+See [local lifecycle safeguards](docs/LIFECYCLE_SAFETY_UPDATE.md) for test tooling.
+Production remains blocked on the arbitration fallback policy and remote validation.
+
 ### Current Celo Sepolia deployment
 
 See the [Sepolia deployment record and next steps](docs/CELO_SEPOLIA_DEPLOYMENT.md)
