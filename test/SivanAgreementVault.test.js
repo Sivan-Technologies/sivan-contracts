@@ -33,6 +33,12 @@ describe("SivanAgreementVault", function () {
     );
     await vault.waitForDeployment();
 
+    // The vault fails CLOSED until initialised, so seed the allowlist before
+    // any deposit. A fresh vault that accepted arbitrary ERC-20s was an audit
+    // finding; every fixture now mirrors a real deployment, which seeds in the
+    // same run as the deploy.
+    await vault.setSupportedToken(await usdc.getAddress(), true);
+
     // Fund buyer with 1,000 USDC and approve vault
     const depositAmount = ethers.parseUnits("1000", 6);
     await usdc.transfer(buyer.address, depositAmount);
@@ -199,7 +205,7 @@ describe("SivanAgreementVault", function () {
 
       // Trying to refund before deadline fails
       await expect(vault.connect(buyer).refundBuyer(agreementId)).to.be.revertedWith(
-        "Deadline has not yet expired"
+        "Refund is not yet unlocked"
       );
 
       // Fast-forward time past deadline

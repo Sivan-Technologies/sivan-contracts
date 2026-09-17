@@ -420,34 +420,90 @@ contract VaultInvariantTest is Test {
      * still be "reachable" while being useless to a real buyer.
      */
     function invariant_everyOpenAgreementHasABoundedExit() public view {
+        /**
+         * AN AUDIT CALLED THIS INVARIANT OUT, CORRECTLY.
+         *
+         * The Disputed branch used to assert only that `disputedAt` was
+         * non-zero. A timestamp existing says nothing about whether anyone can
+         * ever get their money out, so the invariant carried a name it had not
+         * earned: it would have passed while a dispute sat frozen forever
+         * waiting on an owner who had renounced.
+         *
+         * It now asserts the property the name claims. For every state that
+         * still holds funds there must be a time, computable from the
+         * agreement itself and bounded by contract constants, after which some
+         * caller can force the money out. Not "eventually" but "by then".
+         */
         uint256 maxWindow = vault.MAX_DELIVERY_REVIEW_WINDOW();
+        uint256 arbitration = vault.ARBITRATION_PERIOD();
+        uint256 grace = vault.DISPUTE_FILING_GRACE();
         uint256 n = handler.agreementCount();
+
         for (uint256 i = 0; i < n; i++) {
             ISivanAgreementVault.Agreement memory a = vault.getAgreement(handler.agreementAt(i));
 
+            bool open =
+                a.state == ISivanAgreementVault.AgreementState.Funded ||
+                a.state == ISivanAgreementVault.AgreementState.Delivered ||
+                a.state == ISivanAgreementVault.AgreementState.Disputed;
+            if (!open) continue;
+
+            /**
+             * Every open agreement carries its unlock time explicitly. This is
+             * the field that replaced recomputing from mutable globals, which
+             * is what let a settings change revoke a vested refund.
+             */
+            assertGt(a.refundUnlockAt, 0, "open agreement with no refund unlock time");
+
+            /**
+             * THE WORST CASE IS BOUNDED BY CONSTANTS, NOT BY OWNER BEHAVIOUR.
+             *
+             * Deadline, plus at most one review window, plus at most one
+             * arbitration period, plus the filing grace. Each of those moves
+             * happens at most once per agreement, so this ceiling holds no
+             * matter how the parties interleave their actions.
+             */
+            uint256 worstCase = a.deadlineTimestamp + maxWindow + grace + arbitration;
+            assertLe(
+                a.refundUnlockAt,
+                worstCase,
+                "refund unlock exceeds the worst case the constants permit"
+            );
+
             if (a.state == ISivanAgreementVault.AgreementState.Delivered) {
-                // Delivery must be stamped, or the unlock time is unknowable.
                 assertGt(a.deliveredAt, 0, "Delivered with no deliveredAt stamp");
-                // And it must have happened on or before the deadline, which
-                // is what stops a post-deadline claim from resetting the clock.
+                // A post-deadline claim must never reset the clock.
                 assertLe(
                     a.deliveredAt,
                     a.deadlineTimestamp,
                     "delivery recorded after the deadline"
                 );
-                // The exit is reachable within a known, bounded horizon.
-                assertLe(
-                    a.deliveredAt + vault.deliveryReviewWindow(),
-                    a.deadlineTimestamp + maxWindow,
-                    "refund unlock is later than the worst permitted case"
+                // The window applied is the one snapshotted at funding, so a
+                // later re-pricing cannot have moved this agreement.
+                assertEq(
+                    a.refundUnlockAt,
+                    a.deliveredAt + a.reviewWindowSnapshot,
+                    "delivered unlock does not match the snapshotted window"
                 );
             }
 
             if (a.state == ISivanAgreementVault.AgreementState.Disputed) {
                 assertGt(a.disputedAt, 0, "Disputed with no disputedAt stamp");
+                /**
+                 * The exit is claimArbitrationTimeout, which is permissionless.
+                 * Asserting the unlock equals disputedAt + ARBITRATION_PERIOD
+                 * is what makes "bounded" real: it pins the exit to a constant
+                 * rather than to whether an owner chooses to act.
+                 */
+                assertEq(
+                    a.refundUnlockAt,
+                    a.disputedAt + arbitration,
+                    "disputed unlock is not exactly one arbitration period out"
+                );
             }
         }
     }
+
 
     /**
      * 3b. The STORED tier schedule must never exceed the cap either.
@@ -490,9 +546,65 @@ contract VaultFuzzTest is Test {
     function setUp() public {
         token = new MockERC20("USD Coin", "USDC", 6);
         vault = new SivanAgreementVault(address(0xFEE), address(0xA6E7), 9827, owner);
+        // The vault fails CLOSED until initialised, so seed before depositing.
+        vm.prank(owner);
+        vault.setSupportedToken(address(token), true);
         token.mint(buyer, type(uint128).max);
         vm.prank(buyer);
         token.approve(address(vault), type(uint256).max);
+    }
+
+    /**
+     * THE PERMISSIONLESS EXIT ACTUALLY EXECUTES.
+     *
+     * An audit noted the bounded-exit invariant only checked that a timestamp
+     * existed, not that anyone could act on it. My first attempt to close that
+     * was a stateful invariant, and it was WORSE than the gap it replaced: a
+     * diagnostic counter proved it observed ZERO disputed agreements on every
+     * run, because a `public` invariant executes as its own single-call
+     * sequence rather than after the handler's. It passed with
+     * assertTrue(false) sitting in its body.
+     *
+     * Deterministic instead. This builds the exact state and calls the real
+     * function from an address with no role, so there is no question of
+     * whether the code under test ran.
+     */
+    function test_disputedFundsRecoverableByAnyoneAfterTimeout() public {
+        bytes32 id = keccak256("arbitration-timeout");
+        vm.prank(buyer);
+        vault.deposit(id, contractor, address(token), 1_000e6, 48, address(0));
+
+        vm.prank(buyer);
+        vault.raiseDispute(id, "contested");
+
+        ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
+        assertEq(uint8(a.state), uint8(ISivanAgreementVault.AgreementState.Disputed));
+        assertEq(a.refundUnlockAt, a.disputedAt + vault.ARBITRATION_PERIOD());
+
+        // One second early: still closed, so the period is genuinely enforced.
+        vm.warp(a.refundUnlockAt);
+        vm.expectRevert("Arbitration period still running");
+        vault.claimArbitrationTimeout(id);
+
+        // One second late: anyone at all can free the funds.
+        vm.warp(a.refundUnlockAt + 1);
+        uint256 before = token.balanceOf(buyer);
+        vm.prank(address(0xDEADBEEF));
+        vault.claimArbitrationTimeout(id);
+
+        assertEq(token.balanceOf(buyer) - before, a.totalAmount, "buyer not made whole");
+        assertEq(
+            uint8(vault.getAgreement(id).state),
+            uint8(ISivanAgreementVault.AgreementState.Refunded)
+        );
+    }
+
+    /** Ownership cannot be abandoned while it is the arbiter of last resort. */
+    function test_ownershipCannotBeRenounced() public {
+        vm.prank(owner);
+        vm.expectRevert("Renouncing ownership is disabled");
+        vault.renounceOwnership();
+        assertEq(vault.owner(), owner);
     }
 
     /** The fee is never above the cap, for any amount and any decimals. */

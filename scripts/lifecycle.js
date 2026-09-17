@@ -66,6 +66,37 @@ async function main() {
   const net = hre.network.name;
   const isFork = net === "celosepoliafork" || net === "hardhat" || net === "localhost";
 
+  /**
+   * THIS SCRIPT IS FORK-ONLY, AND IT NOW SAYS SO BEFORE SPENDING ANYTHING.
+   *
+   * An audit pointed out that it could not complete on a live testnet: it
+   * needs three signers where hardhat configures one, and its timeout scenario
+   * deposits real funds and THEN calls warp(), which deliberately throws on a
+   * remote network. The deposit succeeds, the warp fails, and the money is
+   * left locked in an agreement the script has abandoned.
+   *
+   * Refusing at the top converts that into a message. Scenarios 2 and 4 depend
+   * on moving time, which no amount of configuration makes possible on a real
+   * chain; they need a resumable design that returns after the real deadline,
+   * not a flag. Until that exists this stays fork-only.
+   *
+   * For a live testnet walkthrough use scripts/lifecycle-live.js, which runs
+   * only the scenarios that do not require time travel.
+   */
+  if (!isFork) {
+    throw new Error(
+      `lifecycle.js is fork-only and refuses to run on ${net}.\n` +
+        "  Two of its four scenarios depend on warping time, which cannot be\n" +
+        "  done on a live chain. Running it here would deposit funds and then\n" +
+        "  abandon them mid-scenario.\n\n" +
+        "  Rehearse on a fork:\n" +
+        "    anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8546 --chain-id 11142220\n" +
+        "    VAULT=0x... npx hardhat run scripts/lifecycle.js --network celosepoliafork\n\n" +
+        "  For a real testnet run:\n" +
+        "    VAULT=0x... npx hardhat run scripts/lifecycle-live.js --network celoSepolia"
+    );
+  }
+
   const vaultAddress = process.env.VAULT;
   if (!vaultAddress || !hre.ethers.isAddress(vaultAddress)) {
     throw new Error(

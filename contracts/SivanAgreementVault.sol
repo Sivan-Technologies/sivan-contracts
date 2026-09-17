@@ -67,6 +67,42 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     uint256 public constant MIN_DELIVERY_REVIEW_WINDOW = 1 days;
     uint256 public constant MAX_DELIVERY_REVIEW_WINDOW = 30 days;
 
+    /**
+     * How long the owner has to adjudicate a dispute before the buyer can
+     * reclaim the funds without anyone's permission.
+     *
+     * An audit found that a contractor could raise a dispute AFTER the buyer's
+     * refund had already vested, which re-locked funds indefinitely, and that
+     * the owner could renounce ownership mid-dispute and strand them forever.
+     * Both reduce to the same structural error: arbitration had no clock, so
+     * "Disputed" was an exit from every other state and an entrance to none.
+     *
+     * A bounded period fixes both at once. The owner has 14 days to rule. After
+     * that anyone may return the funds to the buyer.
+     *
+     * WHY THE FALLBACK FAVOURS THE BUYER. Arbitration that never happened is
+     * not a finding against either party, so the money returns to where it came
+     * from rather than being awarded to the contractor. That also sets the
+     * incentives correctly: a contractor cannot profit by raising a spurious
+     * dispute and waiting, because waiting returns the funds to the buyer. The
+     * worst a bad-faith dispute can now achieve is delay, bounded and known.
+     */
+    uint256 public constant ARBITRATION_PERIOD = 14 days;
+
+    /**
+     * How long AFTER the refund unlocks a dispute may still be filed.
+     *
+     * Zero would be wrong. A contractor who delivers real work on the final day
+     * needs some room to dispute a buyer who is refreshing the refund page. But
+     * unbounded is what produced the finding: a dispute filed a year late still
+     * cancelled a vested refund.
+     *
+     * Two days is enough for a genuine objection and short enough that the
+     * buyer's exit stays predictable: worst case the refund slips by this
+     * window plus the arbitration period, and never further.
+     */
+    uint256 public constant DISPUTE_FILING_GRACE = 2 days;
+
     bytes32 public constant RELEASE_TYPEHASH = keccak256(
         "ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 expiry)"
     );
@@ -248,6 +284,23 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     }
 
     /**
+     * @notice Ownership renunciation is disabled.
+     *
+     * @dev Ownable ships renounceOwnership and it is a live footgun here. An
+     * audit renounced ownership while a dispute was open and left funds that
+     * no address could ever move, because resolveDispute is onlyOwner.
+     *
+     * claimArbitrationTimeout now makes that survivable rather than fatal, but
+     * surviving a mistake is not a reason to leave the mistake reachable. This
+     * contract holds other people's money and its owner is an arbiter; there
+     * is no legitimate reason to abandon that role irreversibly. Hand it to a
+     * multisig with transferOwnership instead.
+     */
+    function renounceOwnership() public view override onlyOwner {
+        revert("Renouncing ownership is disabled");
+    }
+
+    /**
      * @notice Re-prices how long a delivery claim suspends the buyer's refund.
      * @dev Bounded at both ends rather than left to the owner's discretion.
      *      An unbounded setter would recreate the very bug this window exists
@@ -346,9 +399,24 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
          * because a freshly deployed vault has an empty map and would refuse
          * every deposit. The owner opts in once the first token is listed.
          */
-        if (tokenAllowlistEnforced) {
-            require(supportedTokens[token], "Token not supported");
-        }
+        /**
+         * CLOSED UNTIL INITIALISED, NOT OPEN UNTIL RESTRICTED.
+         *
+         * This was `if (tokenAllowlistEnforced) { require(...) }`, so a vault
+         * that had never been seeded accepted ANY ERC-20. The reasoning was
+         * that an empty allowlist would otherwise brick a fresh deployment.
+         * That is true, but it picks the wrong failure: it trades a loud,
+         * immediate, harmless failure for a silent one that only surfaces
+         * after someone has locked a worthless token in a vault they believed
+         * was restricted. An audit deposited a junk token into a fresh vault
+         * to demonstrate it.
+         *
+         * Fail closed instead. An unseeded vault now refuses every deposit
+         * with a message that says exactly what is missing. The deploy script
+         * seeds in the same run, so a correct deployment never sees this.
+         */
+        require(tokenAllowlistEnforced, "Vault not initialised: no tokens listed");
+        require(supportedTokens[token], "Token not supported");
         require(amount > 0, "Amount must be positive");
         require(deadlineHours > 0 && deadlineHours <= 720, "Deadline between 1h and 30d");
 
@@ -417,7 +485,13 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             partnerFeeAmount: partnerFeeAmount,
             deliverableProof: "",
             deliveredAt: 0,
-            disputedAt: 0
+            disputedAt: 0,
+            /**
+             * The buyer's exit is fixed at funding time and only ever moves
+             * forward by rules written here, never by a later settings change.
+             */
+            refundUnlockAt: block.timestamp + (deadlineHours * 1 hours),
+            reviewWindowSnapshot: deliveryReviewWindow
         });
 
         emit AgreementFunded(
@@ -482,7 +556,21 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         agr.deliverableProof = proofUrl;
         agr.deliveredAt = block.timestamp;
 
+        /**
+         * Push the refund out by the window SNAPSHOTTED AT FUNDING, not the
+         * current global one. Both parties agreed to the terms in force when
+         * the money went in; re-pricing applies to new deals only.
+         */
+        uint256 previousUnlock = agr.refundUnlockAt;
+        agr.refundUnlockAt = block.timestamp + agr.reviewWindowSnapshot;
+
         emit DeliverableSubmitted(agreementId, agr.contractor, proofUrl);
+        emit RefundUnlockScheduled(
+            agreementId,
+            previousUnlock,
+            agr.refundUnlockAt,
+            "delivery review window opened"
+        );
     }
 
     // ─── Core Lifecycle: Release Payment ─────────────────────────────────────
@@ -631,7 +719,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             agr.netAmount,
             protocolFee,
             agr.partnerFeeAmount,
-            deliveryRecorded
+            deliveryRecorded,
+            SettlementRoute.BuyerAuthorised
         );
     }
 
@@ -646,38 +735,36 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         require(msg.sender == agr.buyer, "Only buyer can trigger timeout refund");
 
         /**
-         * DELIVERY DELAYS THE REFUND. IT DOES NOT CANCEL IT.
+         * ONE FIELD DECIDES THIS, AND IT WAS FIXED WHEN THE MONEY WENT IN.
          *
-         * Refund used to be reachable only from Funded, which meant a single
-         * delivery claim closed the exit permanently. Now Delivered is also
-         * refundable, just later: the buyer gets deliveryReviewWindow to
-         * inspect the work, and if they neither release nor dispute in that
-         * time the refund reopens.
+         * This used to branch on state and recompute the unlock time from the
+         * LIVE `deliveryReviewWindow`. An audit showed that let the owner
+         * widen the window from 7 to 30 days and thereby revoke a refund a
+         * buyer had already become entitled to, on an agreement that was
+         * already funded and already delivered. Terms changed underneath a
+         * deal in flight.
          *
-         * The reason the window is measured from deliveredAt rather than from
-         * the original deadline is that a contractor who delivers early should
-         * not get a shorter review period than one who delivers on the last
-         * day. Anchoring to the deadline would have punished promptness.
+         * `refundUnlockAt` is now authoritative. It is set at deposit and only
+         * ever moved forward by two explicit events, each of which happens at
+         * most once: delivery opens the review window, and a dispute opens the
+         * arbitration period. Nothing else can move it, so the buyer's
+         * earliest exit is knowable from the agreement alone.
          *
-         * An honest contractor is unaffected: a buyer who has genuinely
-         * received work has every reason to release, and if they stonewall to
-         * run out the clock the contractor can raiseDispute, which freezes the
-         * agreement and blocks this path until the owner adjudicates.
+         * DELIVERY DELAYS THE REFUND, IT DOES NOT CANCEL IT. An honest
+         * contractor is unaffected: a buyer who received real work has every
+         * reason to release, and one who stonewalls to run out the clock can
+         * be met with raiseDispute.
          *
-         * Disputed is deliberately NOT refundable here. Once either side has
-         * escalated, unilateral exits are closed for both of them and only
-         * resolveDispute can move the money.
+         * Disputed is deliberately NOT refundable through this function. Once
+         * either side escalates, unilateral exits close for both and the money
+         * moves only by resolveDispute or, if arbitration never happens,
+         * claimArbitrationTimeout.
          */
-        if (agr.state == AgreementState.Funded) {
-            require(block.timestamp > agr.deadlineTimestamp, "Deadline has not yet expired");
-        } else if (agr.state == AgreementState.Delivered) {
-            require(
-                block.timestamp > agr.deliveredAt + deliveryReviewWindow,
-                "Delivery review window still open"
-            );
-        } else {
-            revert("Cannot refund in current state");
-        }
+        require(
+            agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered,
+            "Cannot refund in current state"
+        );
+        require(block.timestamp > agr.refundUnlockAt, "Refund is not yet unlocked");
 
         agr.state = AgreementState.Refunded;
         uint256 refundAmount = agr.totalAmount;
@@ -764,10 +851,98 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         );
         require(bytes(reason).length > 0, "Reason required");
 
+        /**
+         * A DISPUTE CANNOT REVOKE A REFUND THAT HAS ALREADY VESTED.
+         *
+         * This check did not exist, and its absence undid the whole point of
+         * the previous fix. Closing markDelivered as a route to a permanent
+         * lock while leaving raiseDispute open meant the same lock was still
+         * reachable through a different door: let the deadline pass, wait for
+         * the buyer's refund to become available, then dispute. An audit
+         * reproduced exactly that, including the buyer still being unable to
+         * refund a simulated year later.
+         *
+         * The contractor may dispute right up to the unlock, plus a short
+         * grace period for the case where they are legitimately objecting to a
+         * buyer who is racing them to the refund button. After that the
+         * buyer's exit is theirs and no counterparty action can take it back.
+         *
+         * The BUYER is exempt from the deadline. They are the one the unlock
+         * belongs to, so escalating past it forfeits their own faster remedy
+         * rather than taking something from anyone else. Blocking them would
+         * only stop a buyer who genuinely wants arbitration from asking for it.
+         */
+        if (msg.sender == agr.contractor) {
+            require(
+                block.timestamp <= agr.refundUnlockAt + DISPUTE_FILING_GRACE,
+                "Dispute filing period has closed"
+            );
+        }
+
         agr.state = AgreementState.Disputed;
         agr.disputedAt = block.timestamp;
 
+        /**
+         * Arbitration gets its own bounded clock. If the owner never rules,
+         * claimArbitrationTimeout opens at this time and anyone may return the
+         * funds to the buyer.
+         */
+        uint256 previousUnlock = agr.refundUnlockAt;
+        agr.refundUnlockAt = block.timestamp + ARBITRATION_PERIOD;
+
         emit AgreementDisputed(agreementId, msg.sender, reason);
+        emit RefundUnlockScheduled(
+            agreementId,
+            previousUnlock,
+            agr.refundUnlockAt,
+            "arbitration period opened"
+        );
+    }
+
+    /**
+     * @notice Returns funds to the buyer when arbitration never happened.
+     *
+     * @dev THE GUARANTEE THAT MAKES "NO PERMANENT LOCK" TRUE.
+     *
+     * Every other exit from Disputed requires a specific party to act:
+     * resolveDispute needs the owner, mutualRefund needs the counterparty.
+     * An audit demonstrated the consequence by renouncing ownership while a
+     * dispute was open, after which no address on earth could move the funds.
+     * A lost owner key produces the same outcome without anyone intending it.
+     *
+     * This function is deliberately PERMISSIONLESS. It takes no privileged
+     * role, so it still works with a renounced owner, a lost key, or an
+     * operator who has simply stopped responding. It is also not pausable,
+     * because a pause must never be able to trap money already inside.
+     *
+     * It cannot be abused to skip arbitration: it only opens after the full
+     * ARBITRATION_PERIOD, and it can only send funds to the buyer, which is
+     * where they came from.
+     */
+    function claimArbitrationTimeout(bytes32 agreementId)
+        external
+        override
+        nonReentrant
+    {
+        Agreement storage agr = agreements[agreementId];
+        require(agr.state == AgreementState.Disputed, "Agreement is not disputed");
+        require(
+            block.timestamp > agr.refundUnlockAt,
+            "Arbitration period still running"
+        );
+
+        agr.state = AgreementState.Refunded;
+        uint256 refundAmount = agr.totalAmount;
+
+        IERC20(agr.token).safeTransfer(agr.buyer, refundAmount);
+
+        emit ArbitrationTimedOut(agreementId, msg.sender, refundAmount);
+        emit AgreementRefunded(
+            agreementId,
+            agr.buyer,
+            refundAmount,
+            "Arbitration period expired without a ruling"
+        );
     }
 
     /**
@@ -828,7 +1003,16 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
                 agr.netAmount,
                 protocolFee,
                 agr.partnerFeeAmount,
-                agr.deliveredAt != 0
+                agr.deliveredAt != 0,
+                /**
+                 * ARBITRATED, NOT AGENT VERIFIED.
+                 *
+                 * deliveryRecorded can be true here while no attestation was
+                 * ever checked: resolveDispute does not call the agent path.
+                 * Tagging the route stops downstream reporting from reading
+                 * this as agent-verified delivery.
+                 */
+                SettlementRoute.Arbitrated
             );
         } else {
             /**

@@ -49,6 +49,8 @@ describe("SivanAgreementVault · release matrix", function () {
     const Vault = await ethers.getContractFactory("SivanAgreementVault");
     const vault = await Vault.deploy(feeCollector.address, owner.address, 9827, owner.address);
 
+    await vault.setSupportedToken(await usdc.getAddress(), true);
+
     await usdc.mint(buyer.address, U6(100000));
     await usdc.connect(buyer).approve(await vault.getAddress(), ethers.MaxUint256);
 
@@ -104,7 +106,7 @@ describe("SivanAgreementVault · release matrix", function () {
     await expect(vault.connect(buyer).releasePayment(id, "0x", "0x", 0))
       .to.emit(vault, "AgreementReleased")
       .withArgs(id, buyer.address, contractor.address,
-        (v) => v > 0n, (v) => v >= 0n, 0n, false);
+        (v) => v > 0n, (v) => v >= 0n, 0n, false, 0n); // 0 = BuyerAuthorised
   });
 
   /* ─── row 2: buyer, Delivered, agent required ────────────────────── */
@@ -133,7 +135,7 @@ describe("SivanAgreementVault · release matrix", function () {
         id, "0x", await agentSig(domain, owner, id, "ipfs://proof", agr.deadlineTimestamp), 0)
     ).to.emit(vault, "AgreementReleased")
       .withArgs(id, buyer.address, contractor.address,
-        (v) => v > 0n, (v) => v >= 0n, 0n, true);
+        (v) => v > 0n, (v) => v >= 0n, 0n, true, 0n); // 0 = BuyerAuthorised
   });
 
   it("an attestation over the WRONG proof is refused", async () => {

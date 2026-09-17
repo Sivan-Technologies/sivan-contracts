@@ -161,9 +161,30 @@ async function main() {
     );
   }
 
-  console.log("\nPROVEN: the supplied key produces attestations that recover to the");
-  console.log("vault's configured attester, under the domain the contract itself");
-  console.log("reports. Delivered agreements are releasable.");
+  /**
+   * SCOPE THE CLAIM TO WHAT WAS ACTUALLY CHECKED.
+   *
+   * An audit flagged the previous wording, "Delivered agreements are
+   * releasable", as broader than the evidence. This script recovers a
+   * signature off chain against the contract's own domain. It never calls
+   * releasePayment, so it cannot speak to the other conditions that gate a
+   * release: agreement state, buyer authorisation, expiry bounds, nonce, or
+   * whether the contract is paused.
+   *
+   * What it proves is precise and still worth having: the key exists, it
+   * matches the configured attester, and the domain both sides use agrees.
+   * Those are exactly the failures that are invisible until a real release
+   * reverts.
+   */
+  console.log("\nPROVEN, precisely:");
+  console.log("  - the supplied key controls the vault's configured agentAttester");
+  console.log("  - its signatures recover correctly under the EIP-712 domain the");
+  console.log("    contract itself reports, so attestations will not be rejected");
+  console.log("    for a domain mismatch");
+  console.log("\nNOT proven here: that any given release will succeed. This performs");
+  console.log("no on-chain call, so agreement state, buyer authorisation, expiry,");
+  console.log("nonce and pause state are all unverified. Exercise a real release");
+  console.log("with scripts/lifecycle.js on a fork, or lifecycle-live.js on testnet.");
 }
 
 main().catch((error) => {

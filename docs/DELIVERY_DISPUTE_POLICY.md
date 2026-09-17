@@ -222,3 +222,97 @@ Slither reports nothing against `SivanAgreementVault`.
 **The deployed Celo Sepolia vault `0x0592edf3...787caf` has the bug and cannot
 be upgraded.** It is not proxied. Redeploy before any further integration
 testing, and treat the existing address as a throwaway.
+
+---
+
+## Audit round 2: what the first fix missed
+
+An external review of the fix above found three High issues. All were
+reproduced locally as failing tests before being fixed, and all three reduce
+to the same mistake: I closed one route into a permanent lock and left others
+open.
+
+### 1. A late dispute re-locked a vested refund
+
+`raiseDispute` had no deadline. A contractor could let the deadline pass, wait
+for the buyer's refund to become available, and then dispute, which pushed the
+agreement into `Disputed` where `refundBuyer` reverts. Reproduced with the
+buyer still unable to refund a simulated year later.
+
+Closing `markDelivered` while leaving this open meant the original lockup was
+still reachable through a different door.
+
+**Fixed.** A contractor may only dispute up to `refundUnlockAt +
+DISPUTE_FILING_GRACE` (2 days). The buyer is exempt, because the unlock is
+theirs to forfeit and blocking them would only stop someone who genuinely
+wants arbitration from asking for it.
+
+### 2. Re-pricing the review window reached into live agreements
+
+`refundBuyer` recomputed eligibility from the live global
+`deliveryReviewWindow`. Widening it from 7 to 30 days revoked a refund a buyer
+had already earned, on a deal already funded and already delivered.
+
+**Fixed.** `reviewWindowSnapshot` is captured at funding and
+`refundUnlockAt` is now the single authoritative field. It is set at deposit
+and moved forward only by delivery and by a dispute, each at most once. New
+terms bind new agreements only.
+
+### 3. Arbitration depended on an owner who could vanish
+
+`renounceOwnership` was inherited and unguarded. Renouncing mid-dispute left
+funds no address could move, since `resolveDispute` is `onlyOwner`. A lost key
+produces the same outcome accidentally.
+
+**Fixed, twice over.** `renounceOwnership` reverts, and
+`claimArbitrationTimeout` lets **anyone** return disputed funds to the buyer
+once `ARBITRATION_PERIOD` (14 days) has elapsed. Permissionless on purpose: it
+survives a renounced owner, a lost key, and an operator who has simply stopped
+responding. Not pausable, because a pause must never trap funds.
+
+The fallback favours the buyer because arbitration that never happened is not
+a finding against either party. That also fixes the incentives: a contractor
+cannot profit from a spurious dispute, since waiting returns the money to the
+buyer. The worst a bad-faith dispute achieves is bounded, known delay.
+
+### Also addressed
+
+- **Deposits now fail closed.** An unseeded vault accepted any ERC-20; it now
+  refuses every deposit with `Vault not initialised: no tokens listed`.
+- **`AgreementReleased` gained `route`.** `deliveryRecorded` could be true on
+  the arbitrated path with no attestation ever checked, so downstream could
+  read it as agent-verified delivery. `BuyerAuthorised` and `Arbitrated` are
+  now distinguishable.
+- **`lifecycle.js` refuses live networks** instead of depositing funds and then
+  throwing on `warp()`. `lifecycle-live.js` runs the scenarios that complete in
+  one sitting and makes the timeout test resumable.
+- **`check-attester.js` scoped its claim.** It proves key and domain
+  consistency, not that a release will succeed.
+
+### The bounded-exit invariant, which was decoration
+
+The reviewer noted it only checked that `disputedAt` was non-zero. My first
+replacement was a stateful invariant that was **worse**: a diagnostic counter
+proved it observed zero disputed agreements on every run, because a `public`
+invariant executes as its own single-call sequence rather than after the
+handler's. It passed with `assertTrue(false)` in its body.
+
+Replaced with a deterministic test that provably executes, plus a strengthened
+invariant asserting the unlock is bounded by
+`deadline + MAX_REVIEW + GRACE + ARBITRATION` and equals exactly
+`disputedAt + ARBITRATION_PERIOD` while disputed.
+
+### Worst-case time to exit
+
+| State | Exit | Who can call it |
+|---|---|---|
+| Funded | deadline | buyer |
+| Delivered | `deliveredAt + snapshot` | buyer |
+| Disputed | `disputedAt + 14 days` | **anyone** |
+
+Ceiling: `deadline + 30 days + 2 days + 14 days`. Bounded by constants, not by
+anyone's cooperation.
+
+**Tests: 92 Hardhat, 7 invariants over 12,800 calls, plus 2 deterministic
+Foundry tests.** Every new guard mutation tested and restored byte-identical.
+Slither reports nothing against `SivanAgreementVault`.

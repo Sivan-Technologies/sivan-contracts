@@ -60,6 +60,11 @@ describe("SivanAgreementVault · security", function () {
     const vault = await Vault.deploy(
       feeCollector.address, owner.address, 9827, owner.address);
 
+    // Seed only the legitimate assets. `rogue` is deliberately left off the
+    // list, because a test below asserts that an unlisted token is refused.
+    await vault.setSupportedTokens(
+      [await token.getAddress(), await usdm.getAddress()], true);
+
     for (const who of [buyer, attacker]) {
       await token.mint(who.address, USDC(100000));
       await rogue.mint(who.address, USDC(100000));

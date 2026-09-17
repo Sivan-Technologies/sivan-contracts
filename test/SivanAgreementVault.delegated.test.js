@@ -26,6 +26,8 @@ describe("SivanAgreementVault · delegated release", function () {
     const Vault = await ethers.getContractFactory("SivanAgreementVault");
     const vault = await Vault.deploy(feeCollector.address, owner.address, 9827, owner.address);
 
+    await vault.setSupportedToken(await usdc.getAddress(), true);
+
     await usdc.mint(buyer.address, U6(100000));
     await usdc.connect(buyer).approve(await vault.getAddress(), ethers.MaxUint256);
 

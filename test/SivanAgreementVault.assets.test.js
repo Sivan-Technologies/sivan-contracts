@@ -58,6 +58,17 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
     const Vault = await ethers.getContractFactory("SivanAgreementVault");
     const vault = await Vault.deploy(feeCollector.address, owner.address, 9827, owner.address);
 
+    // Seed first: the vault refuses deposits until initialised.
+    //
+    // `fot` is deliberately NOT seeded here. A test below lists usdc/usdt/cngn
+    // and then asserts the fee-on-transfer token is still refused, so seeding
+    // it in the shared fixture would silently defeat that assertion. Tests
+    // that need it depositable list it themselves.
+    await vault.setSupportedTokens(
+      [await usdc.getAddress(), await usdt.getAddress(), await cngn.getAddress()],
+      true
+    );
+
     for (const t of [usdc, usdt, cngn, fot]) {
       const dec = await t.decimals();
       await t.mint(buyer.address, ethers.parseUnits("1000000", dec));
@@ -78,6 +89,7 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
    * ──────────────────────────────────────────────────────────────── */
   it("credits only what the vault actually received, for fee-on-transfer tokens", async () => {
     const { vault, fot, owner, buyer, contractor } = await deploy();
+    await vault.connect(owner).setSupportedToken(await fot.getAddress(), true);
     const vaultAddr = await vault.getAddress();
 
     const a = ID("fot-a");
@@ -104,6 +116,7 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
 
   it("a second fee-on-transfer agreement cannot be drained by the first", async () => {
     const { vault, fot, owner, buyer, contractor } = await deploy();
+    await vault.connect(owner).setSupportedToken(await fot.getAddress(), true);
     const addr = await fot.getAddress();
 
     const a = ID("drain-a");

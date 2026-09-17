@@ -41,6 +41,8 @@ describe("Delivery lockup and dispute resolution", function () {
     vault = await V.deploy(owner.address, attester.address, 9827, owner.address);
     await vault.waitForDeployment();
 
+    await vault.setSupportedToken(await token.getAddress(), true);
+
     await token.mint(buyer.address, AMOUNT * 10n);
     await token.connect(buyer).approve(await vault.getAddress(), AMOUNT * 10n);
     await vault
@@ -90,7 +92,7 @@ describe("Delivery lockup and dispute resolution", function () {
       const { deadlineTimestamp } = await vault.getAgreement(ID);
       await time.setNextBlockTimestamp(Number(deadlineTimestamp) + 1);
       await expect(vault.connect(buyer).refundBuyer(ID)).to.be.revertedWith(
-        "Delivery review window still open"
+        "Refund is not yet unlocked"
       );
 
       // Once the review window lapses the refund reopens. This is the exact
@@ -131,7 +133,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
       await time.setNextBlockTimestamp(Number(deliveredAt + window));
       await expect(vault.connect(buyer).refundBuyer(ID)).to.be.revertedWith(
-        "Delivery review window still open"
+        "Refund is not yet unlocked"
       );
     });
 
@@ -420,14 +422,38 @@ describe("Delivery lockup and dispute resolution", function () {
         .withArgs(old, next);
     });
 
-    it("applies the new window to agreements delivered afterwards", async () => {
+    it("does NOT apply a new window to an agreement funded beforehand", async () => {
+      // This test used to assert the opposite, and asserting the opposite was
+      // the bug. An audit showed the owner could widen the window from 7 to 30
+      // days and revoke a refund the buyer had ALREADY earned, because
+      // refundBuyer read the live global value. The window is now snapshotted
+      // at funding, so re-pricing binds new agreements only.
       const short = await vault.MIN_DELIVERY_REVIEW_WINDOW();
       await vault.connect(owner).setDeliveryReviewWindow(short);
 
       await vault.connect(contractor).markDelivered(ID, "ipfs://x");
       await time.increase(Number(short) + 60);
 
-      await expect(vault.connect(buyer).refundBuyer(ID)).to.changeTokenBalance(
+      // The snapshot is still 7 days, so the shorter global window does not
+      // unlock this agreement early.
+      await expect(vault.connect(buyer).refundBuyer(ID)).to.be.revertedWith(
+        "Refund is not yet unlocked"
+      );
+      expect((await vault.getAgreement(ID)).reviewWindowSnapshot).to.equal(7n * 24n * 3600n);
+    });
+
+    it("applies the new window to agreements funded afterwards", async () => {
+      const short = await vault.MIN_DELIVERY_REVIEW_WINDOW();
+      await vault.connect(owner).setDeliveryReviewWindow(short);
+
+      const ID2 = ethers.id("funded-after-repricing");
+      await vault
+        .connect(buyer)
+        .deposit(ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+      await vault.connect(contractor).markDelivered(ID2, "ipfs://x");
+      await time.increase(Number(short) + 60);
+
+      await expect(vault.connect(buyer).refundBuyer(ID2)).to.changeTokenBalance(
         token,
         buyer,
         AMOUNT
