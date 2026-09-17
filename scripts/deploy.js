@@ -87,6 +87,9 @@ async function describeToken(address) {
 
 async function main() {
   const net = hre.network.name;
+  if (!["hardhat", "localhost", "celofork", "celo", "alfajores", "celoSepolia"].includes(net)) {
+    throw new Error(`Unsupported deployment network: ${net}`);
+  }
 
   /**
    * Check the deployer key BEFORE touching the network.
@@ -104,7 +107,7 @@ async function main() {
           "deployment with.\n" +
           "  1. cp .env.example .env\n" +
           "  2. generate a FRESH key (cast wallet new)\n" +
-          "  3. fund it at https://faucet.celo.org for Alfajores"
+          "  3. fund the dedicated testnet wallet using the appropriate testnet faucet"
       );
     }
     const normalised = key.startsWith("0x") ? key : `0x${key}`;
@@ -125,6 +128,34 @@ async function main() {
   const feeCollector = process.env.SIVAN_FEE_COLLECTOR || deployer.address;
   const agentAttester = process.env.SIVAN_AGENT_ATTESTER || deployer.address;
   const registeredAgentId = Number(process.env.SIVAN_AGENT_ID || 9827);
+
+  // Read-only Sepolia preflight: fail before sending ANY deployment transaction.
+  let sepoliaTokens;
+  if (net === "celoSepolia") {
+    const network = await hre.ethers.provider.getNetwork();
+    if (hre.network.config.chainId !== 11142220 || network.chainId !== 11142220n) {
+      throw new Error("Celo Sepolia requires chain ID 11142220. Refusing deployment.");
+    }
+    for (const name of ["SIVAN_FEE_COLLECTOR", "SIVAN_AGENT_ATTESTER", "CELO_SEPOLIA_USDC"]) {
+      const value = process.env[name];
+      if (!value || !hre.ethers.isAddress(value) || value === hre.ethers.ZeroAddress) {
+        throw new Error(`${name} must be an explicit nonzero address.`);
+      }
+    }
+    if (!Number.isSafeInteger(registeredAgentId) || registeredAgentId <= 0) {
+      throw new Error("SIVAN_AGENT_ID must be a positive safe integer.");
+    }
+    const token = process.env.CELO_SEPOLIA_USDC;
+    const metadata = await describeToken(token);
+    if (metadata.symbol !== "USDC" || metadata.decimals !== 6) {
+      throw new Error("Configured Sepolia token must report USDC with 6 decimals.");
+    }
+    if (await hre.ethers.provider.getBalance(deployer.address) === 0n) {
+      throw new Error("Deployer needs test CELO for deployment and allowlist gas.");
+    }
+    sepoliaTokens = { USDC: token };
+    console.log("Sepolia preflight passed (network, roles, USDC metadata, nonzero gas balance).");
+  }
 
   if (net === "celo") {
     /**
@@ -161,6 +192,8 @@ async function main() {
       ? MAINNET_TOKENS
       : net === "alfajores"
       ? ALFAJORES_TOKENS
+      : net === "celoSepolia"
+      ? sepoliaTokens
       : null;
 
   if (!tokens) {

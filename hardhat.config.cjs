@@ -1,8 +1,9 @@
 require("@nomicfoundation/hardhat-toolbox");
 require("dotenv").config();
 
-const accounts = process.env.DEPLOYER_PRIVATE_KEY
-  ? [process.env.DEPLOYER_PRIVATE_KEY]
+const key = (process.env.DEPLOYER_PRIVATE_KEY || "").trim();
+const accounts = key
+  ? [key.startsWith("0x") ? key : `0x${key}`]
   : [];
 
 module.exports = {
@@ -21,6 +22,13 @@ module.exports = {
     },
   },
   networks: {
+    ...(process.env.CELO_SEPOLIA_RPC_URL ? {
+      celoSepolia: {
+        url: process.env.CELO_SEPOLIA_RPC_URL,
+        chainId: Number(process.env.CELO_SEPOLIA_CHAIN_ID),
+        accounts,
+      },
+    } : {}),
     hardhat: {
       chainId: 31337,
     },
