@@ -22,13 +22,6 @@ module.exports = {
     },
   },
   networks: {
-    ...(process.env.CELO_SEPOLIA_RPC_URL ? {
-      celoSepolia: {
-        url: process.env.CELO_SEPOLIA_RPC_URL,
-        chainId: Number(process.env.CELO_SEPOLIA_CHAIN_ID),
-        accounts,
-      },
-    } : {}),
     hardhat: {
       chainId: 31337,
     },
@@ -46,7 +39,29 @@ module.exports = {
     // anchored to Ethereum Sepolia and is the long-term testnet. It started
     // from a clean slate, so nothing from Alfajores carried over and every
     // contract has to be redeployed rather than reused.
-    // The environment-backed celoSepolia entry is defined above.
+    //
+    // THE URL IS AN OVERRIDE, NOT A PREREQUISITE, AND THE CHAIN ID IS A FACT.
+    //
+    // This entry was briefly made conditional on CELO_SEPOLIA_RPC_URL being
+    // set, which meant a fresh clone running the documented `npm run
+    // deploy:sepolia` got "Error HH100: Network celoSepolia doesn't exist".
+    // That error names neither .env nor the missing variable, so the cause is
+    // invisible. Defaulting the URL keeps the documented command working out
+    // of the box and leaves .env for people who want a private RPC.
+    //
+    // The chain ID is hardcoded rather than read from the environment because
+    // 11142220 is a property of Celo Sepolia, not a setting. Reading it from
+    // .env made a typo there indistinguishable from a real network change, and
+    // Number(undefined) is NaN, which builds a nonsense network rather than
+    // failing. The deploy script still asserts the live RPC reports 11142220,
+    // which is the case actually worth defending against.
+    celoSepolia: {
+      url:
+        process.env.CELO_SEPOLIA_RPC_URL ||
+        "https://forno.celo-sepolia.celo-testnet.org",
+      chainId: 11142220,
+      accounts,
+    },
     // A local fork of Celo Sepolia, so a deployment can be rehearsed end to end
     // against the REAL testnet token contracts without spending testnet CELO
     // or exposing a key. Start it with:

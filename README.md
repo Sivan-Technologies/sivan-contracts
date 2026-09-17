@@ -23,7 +23,7 @@ Official Links:
 
 ## 1. Overview
 
-sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainnet and MiniPay. It enables fully non-custodial milestone Service Agreements settling in Celo native USDC, cUSD, and cNGN.
+sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainnet and MiniPay. It enables fully non-custodial milestone Service Agreements settling in Celo native USDC (primary), cUSD, and USDT.
 
 ### Key Features
 - Zero Custody: Sivan AI never holds user private keys. All funds are locked directly in an immutable smart contract on Celo Mainnet.
@@ -31,7 +31,7 @@ sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainn
 - Open Developer Revenue Share: Any external dApp, freelance marketplace, or AI agent can integrate the contract and earn up to 30% to 50% of the platform fee by supplying their partnerAddress.
 - Dual Cryptographic Attestation: Payments release only when both the buyer (via MiniPay EIP-712 signature) and Sivan AI (registered ERC-8004 Agent #9827) attest that milestones are satisfied.
 - Automated Timeout Auto-Refund: If milestone deadlines pass without delivery, buyers autonomously claim 100% of their funds with zero admin intervention.
-- Ultra-Low Celo Gas Friction: Sub-cent settlement costs (< $0.0003 USD per deal) and support for paying gas directly in USDC or cUSD.
+- Ultra-Low Celo Gas Friction: A release costs roughly 65,000 gas, and Celo supports paying that gas directly in USDC or cUSD via CIP-64. The dollar figure moves with gas price and the CELO price, so the gas number is quoted instead.
 
 ---
 
@@ -39,10 +39,12 @@ sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainn
 
 - contracts/SivanAgreementVault.sol: Primary settlement contract.
 - contracts/interfaces/ISivanAgreementVault.sol: Standard integration interface for external developers.
-- contracts/test/MockERC20.sol: Mock token contract for automated testing.
-- test/SivanAgreementVault.test.js: Comprehensive unit test suite.
-- scripts/deploy.js: Deployment and verification script for Celo Alfajores and Mainnet.
-- docs/: Complete architecture, specification, and integration documentation.
+- contracts/test/MockERC20.sol: Mock token with configurable decimals, so 6dp and 18dp assets are both exercised.
+- contracts/test/MockFeeOnTransferERC20.sol: Skims a percentage on transfer, to prove deposits record what actually arrived.
+- test/: Five Hardhat suites, 75 tests. Core lifecycle, security, assets, delegated release, release matrix, and the delivery lockup.
+- forge-test/VaultInvariant.t.sol: Foundry handler with 7 invariants over 12,800 calls, plus 4 fuzz tests.
+- scripts/deploy.js: Deployment for Celo Sepolia and Mainnet, with on-chain token verification and block-pinned post-deploy assertions.
+- docs/: Architecture, specification, integration, the delivery and dispute policy, and the testnet runbook.
 
 ---
 
@@ -57,7 +59,8 @@ Requirements: Node.js v20+, npm
    npx hardhat compile
 
 3. Run test suite:
-   npx hardhat test
+   npx hardhat test      # 75 tests
+   forge test            # 7 invariants over 12,800 calls, plus 4 fuzz tests
 
 ---
 
@@ -80,11 +83,15 @@ Configure your environment variables in .env (see .env.example):
 - SIVAN_AGENT_ATTESTER
 - CELOSCAN_API_KEY
 
-### Deploy to Celo Alfajores Testnet:
-npx hardhat run scripts/deploy.js --network alfajores
+### Deploy to Celo Sepolia Testnet:
+npm run deploy:sepolia
+
+Alfajores (chain 44787) was sunset on 30 September 2025 with Ethereum Holesky.
+Celo Sepolia (chain 11142220) replaced it. The deploy script refuses the
+alfajores network rather than timing out against an RPC that no longer answers.
 
 ### Deploy to Celo Mainnet:
-npx hardhat run scripts/deploy.js --network celo
+npm run deploy:celo
 
 ---
 
@@ -92,8 +99,9 @@ npx hardhat run scripts/deploy.js --network celo
 
 - Re-Entrancy Protection: OpenZeppelin ReentrancyGuard on all state-mutating functions.
 - Safe Transfers: OpenZeppelin SafeERC20 ensuring non-standard token transfers never get stuck.
-- Signature Replay Prevention: EIP-712 typed data hashing including chainId (42220), verifying contract, unique agreementId, and nonces.
+- Signature Replay Prevention: EIP-712 typed data hashing including the chain ID, the verifying contract address, a unique agreementId, and per-agreement nonces. The chain ID is bound from block.chainid at construction rather than hardcoded, so the same source deploys correctly to mainnet (42220) and Celo Sepolia (11142220). Hardcoding it would make every signature on the other network invalid.
 - Strict Protocol Fee Separation: On-chain transfer fees (Sivan Transfer Fee) are completely decoupled from fiat bank dispersal fees (Sivan Off-Ramp Fee).
+- No Permanent Lockups: every agreement holding funds has an exit reachable within a bounded, known time. A delivery claim delays the buyer's refund by a review window; it cannot cancel it. Either party can escalate to arbitration, and the owner can neither freeze an undisputed agreement nor choose a recipient outside the two parties. See [the delivery and dispute policy](docs/DELIVERY_DISPUTE_POLICY.md).
 
 ---
 

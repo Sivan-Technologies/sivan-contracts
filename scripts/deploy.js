@@ -196,7 +196,22 @@ async function main() {
   await vault.waitForDeployment();
   const vaultAddress = await vault.getAddress();
 
+  /**
+   * Capture the creation receipt immediately.
+   *
+   * The first Sepolia deployment finished without recording its transaction
+   * hashes, and they had to be recovered from a block explorer afterwards.
+   * They are free to capture here and awkward to find later, so capture them.
+   */
+  const deployTx = vault.deploymentTransaction();
+  const deployReceipt = await deployTx.wait();
+  if (deployReceipt.status !== 1) {
+    throw new Error(`Deployment transaction reverted: ${deployReceipt.hash}`);
+  }
+
   console.log("\nVault deployed:", vaultAddress);
+  console.log(`  deploy tx: ${deployReceipt.hash} (block ${deployReceipt.blockNumber})`);
+  console.log(`  gas used : ${deployReceipt.gasUsed.toString()}`);
 
   // ── Seed the allowlist ──────────────────────────────────────────────
   const tokens =
@@ -207,6 +222,11 @@ async function main() {
       : net === "celosepoliafork"
       ? CELO_SEPOLIA_TOKENS
       : null;
+
+  // Hoisted so the deployment record below can see them.
+  let seedTxHash = null;
+  let seedBlockNumber = null;
+  let listedTokens = [];
 
   if (!tokens) {
     console.log("\nLocal network: skipping the allowlist seed.");
@@ -238,18 +258,94 @@ async function main() {
     }
 
     const tx = await vault.setSupportedTokens(addresses, true);
-    await tx.wait();
-    console.log(`\nListed ${addresses.length} assets in one transaction.`);
-
-    // Assert the allowlist is actually enforced now. Without this the script
-    // can report success while the vault still accepts arbitrary tokens.
-    const enforced = await vault.tokenAllowlistEnforced();
-    if (!enforced) {
-      throw new Error("Allowlist did not engage after seeding. Investigate before use.");
+    const seedReceipt = await tx.wait();
+    if (seedReceipt.status !== 1) {
+      throw new Error(
+        `Allowlist seeding REVERTED.\n` +
+          `  vault  : ${vaultAddress}\n` +
+          `  seed tx: ${seedReceipt.hash}\n` +
+          `The vault exists but accepts ANY token. Do not use it.`
+      );
     }
+    console.log(`\nListed ${addresses.length} assets in one transaction.`);
+    console.log(`  seed tx: ${seedReceipt.hash} (block ${seedReceipt.blockNumber})`);
+    seedTxHash = seedReceipt.hash;
+    seedBlockNumber = seedReceipt.blockNumber;
+    listedTokens = addresses;
+
+    /**
+     * Assert the allowlist actually engaged, pinned to the seeding block.
+     *
+     * Without this check the script can report success while the vault still
+     * accepts arbitrary tokens. But the first version of the check read at
+     * "latest" and failed a real deployment that was perfectly fine:
+     *
+     *   Vault deployed: 0x0592edf3...787caf
+     *   Listed 1 assets in one transaction.
+     *   Error: Allowlist did not engage after seeding. Investigate before use.
+     *
+     * The flag was true in the seeding transaction's OWN block. forno sits
+     * behind several backends; tx.wait() returned from one that had the block
+     * and the follow-up eth_call hit one that did not. Reading at `latest`
+     * lets a lagging backend answer from before the state change.
+     *
+     * Pinning to receipt.blockNumber removes the ambiguity: that block either
+     * contains the change or the deployment genuinely failed. The retry is
+     * only for backends that have not indexed the block yet, which surfaces as
+     * a thrown error rather than a stale `false`.
+     *
+     * NOTHING HERE RE-SENDS A TRANSACTION. Retrying a send after an apparent
+     * failure is how one vault becomes two, each holding real money. Retries
+     * are reads only.
+     */
+    const blockTag = seedReceipt.blockNumber;
+    const RETRIES = 8;
+    let enforced = false;
+    for (let attempt = 1; attempt <= RETRIES; attempt++) {
+      try {
+        enforced = await vault.tokenAllowlistEnforced({ blockTag });
+        if (enforced) break;
+        // A definitive `false` AT the seeding block is a real failure, not
+        // propagation lag. Stop rather than burn the remaining retries.
+        throw new Error(
+          `Allowlist is not enforced at block ${blockTag}, the block that ` +
+            `contains the seeding transaction. This is a genuine failure.`
+        );
+      } catch (error) {
+        if (error.message && error.message.includes("is not enforced at block")) {
+          throw new Error(
+            `${error.message}\n` +
+              `  vault  : ${vaultAddress}\n` +
+              `  seed tx: ${seedReceipt.hash}\n` +
+              `DO NOT REDEPLOY. Inspect the existing vault first; redeploying ` +
+              `creates a second vault and spends more gas.`
+          );
+        }
+        if (attempt === RETRIES) {
+          throw new Error(
+            `Could not read the allowlist at block ${blockTag} after ` +
+              `${RETRIES} attempts: ${error.message}\n` +
+              `  vault  : ${vaultAddress}\n` +
+              `  seed tx: ${seedReceipt.hash}\n` +
+              `The seeding transaction SUCCEEDED. This is a read problem, not ` +
+              `a deployment problem. Verify manually:\n` +
+              `  cast call ${vaultAddress} "tokenAllowlistEnforced()(bool)" --rpc-url <rpc>\n` +
+              `DO NOT REDEPLOY.`
+          );
+        }
+        console.log(`  allowlist read attempt ${attempt} failed, retrying in 2s`);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      }
+    }
+
     for (const address of addresses) {
-      if (!(await vault.supportedTokens(address))) {
-        throw new Error(`Token ${address} is not listed after seeding.`);
+      if (!(await vault.supportedTokens(address, { blockTag }))) {
+        throw new Error(
+          `Token ${address} is not listed at block ${blockTag}.\n` +
+            `  vault  : ${vaultAddress}\n` +
+            `  seed tx: ${seedReceipt.hash}\n` +
+            `DO NOT REDEPLOY.`
+        );
       }
     }
     console.log("Allowlist enforced and every listed asset confirmed on chain.");
@@ -266,11 +362,84 @@ async function main() {
   console.log(`   > ${t2u} units : ${t3b} bps`);
   console.log("  adjust later with setFeeTiers(), no redeploy required");
 
+  /**
+   * READ THE ROLES BACK OFF CHAIN.
+   *
+   * The constructor takes four addresses in an order that is easy to
+   * transpose, and a wrong fee collector or attester is invisible until money
+   * moves or a signature fails. Asserting them here costs four eth_calls and
+   * converts a silent misconfiguration into a failed deployment.
+   */
+  const onChain = {
+    owner: await vault.owner(),
+    feeCollector: await vault.feeCollector(),
+    agentAttester: await vault.agentAttester(),
+    registeredAgentId: (await vault.registeredAgentId()).toString(),
+  };
+  const expected = {
+    owner: deployer.address,
+    feeCollector,
+    agentAttester,
+    registeredAgentId: String(registeredAgentId),
+  };
+  console.log("\nRoles read back from the deployed contract:");
+  for (const [key, want] of Object.entries(expected)) {
+    const got = onChain[key];
+    const same =
+      typeof want === "string" && want.startsWith("0x")
+        ? got.toLowerCase() === want.toLowerCase()
+        : got === want;
+    console.log(`  ${key.padEnd(18)} ${got} ${same ? "OK" : "MISMATCH, expected " + want}`);
+    if (!same) {
+      throw new Error(
+        `${key} on chain is ${got} but ${want} was intended. The constructor ` +
+          `arguments are likely transposed. Vault ${vaultAddress} should be ` +
+          `considered unusable.`
+      );
+    }
+  }
+
+  const verifyCommand =
+    `npx hardhat verify --network ${net} ${vaultAddress} ` +
+    `${feeCollector} ${agentAttester} ${registeredAgentId} ${deployer.address}`;
+
   console.log("\nVerify with:");
-  console.log(
-    `  npx hardhat verify --network ${net} ${vaultAddress} ` +
-      `${feeCollector} ${agentAttester} ${registeredAgentId} ${deployer.address}`
-  );
+  console.log(`  ${verifyCommand}`);
+
+  /**
+   * Write the record to disk rather than relying on the terminal scrollback.
+   * deployments/ is gitignored: it contains no secrets, but it is per
+   * deployment rather than per repository.
+   */
+  if (net !== "hardhat" && net !== "localhost") {
+    const fs = require("fs");
+    const path = require("path");
+    const dir = path.join(__dirname, "..", "deployments");
+    fs.mkdirSync(dir, { recursive: true });
+    const record = {
+      network: net,
+      chainId: hre.network.config.chainId,
+      vault: vaultAddress,
+      deployTx: deployReceipt.hash,
+      deployBlock: deployReceipt.blockNumber,
+      deployGasUsed: deployReceipt.gasUsed.toString(),
+      seedTx: seedTxHash,
+      seedBlock: seedBlockNumber,
+      roles: onChain,
+      listedTokens,
+      feeTiers: {
+        tier1UpperUnits: t1u.toString(), tier1Bps: t1b.toString(),
+        tier2UpperUnits: t2u.toString(), tier2Bps: t2b.toString(),
+        tier3Bps: t3b.toString(),
+      },
+      deliveryReviewWindowSeconds: (await vault.deliveryReviewWindow()).toString(),
+      verifyCommand,
+      timestamp: new Date().toISOString(),
+    };
+    const file = path.join(dir, `${net}-${vaultAddress}.json`);
+    fs.writeFileSync(file, JSON.stringify(record, null, 2));
+    console.log(`\nDeployment record written to deployments/${path.basename(file)}`);
+  }
 
   return vaultAddress;
 }

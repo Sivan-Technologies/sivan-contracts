@@ -1,5 +1,34 @@
 # Celo Sepolia deployment record and next steps
 
+> **SUPERSEDED, 2026-09-17.** The vault recorded below carries a critical
+> delivery lockup bug: a false delivery claim filed after the deadline moved
+> the agreement to `Delivered`, from which `refundBuyer` reverted on state and
+> no party could move the funds. Fixed in `505f9b9`. The contract is not
+> proxied, so this address cannot be upgraded and must be redeployed. Do not
+> verify it on Blockscout. See [DELIVERY_DISPUTE_POLICY.md](DELIVERY_DISPUTE_POLICY.md).
+>
+> **Open questions from this record are now closed:**
+>
+> - Transaction hashes, which were reported as not captured, were recovered
+>   from Blockscout:
+>   - creation `0x2f29b61cc36810d7d453cc7032f231afe57ebeccfffb1391c9728b0233259240`, block 36351050, status ok, 3,000,367 gas
+>   - `setSupportedTokens` `0xa952aebd6c006dc397a5c12f740c2367a60a4da0d10e881e296dca838b5a5b79`, block 36351054, status ok, 71,331 gas
+> - The "Allowlist did not engage" error is **proven** to be a stale RPC read,
+>   not a contract fault. `tokenAllowlistEnforced()` pinned to block 36351053
+>   returns false and to block 36351054, the seeding transaction's own block,
+>   returns true. There was never a moment after that transaction where the
+>   correct answer was false.
+> - Remaining-work item 3 is done: `feeCollector`, `agentAttester`,
+>   `registeredAgentId` and all five fee-tier values were read back and match.
+> - Remaining-work item 2 is now implemented, not merely proposed. The deploy
+>   script pins its post-seed reads to the receipt's block, retries only for
+>   propagation, never re-sends a transaction, and prints the vault address and
+>   both hashes on failure with an explicit DO NOT REDEPLOY.
+> - Deployed bytecode was confirmed byte-identical to `staging` HEAD. All 27
+>   differing byte ranges decode to EIP-712 immutables: the domain string, the
+>   version, the vault's own address, the cached separator hashes, and chain ID
+>   11142220.
+
 Recorded: 2026-09-17. Scope: SivanAgreementVault on testnet only.
 
 ## Current deployment

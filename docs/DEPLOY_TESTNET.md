@@ -1,5 +1,14 @@
 # Deploying the vault to Celo testnet
 
+> **The first Sepolia vault `0x0592edf36Ec65A809f5230cEd5BadBe472787CAf` is
+> superseded and must not be used.** It carries the delivery lockup bug, where
+> a false delivery claim filed after the deadline permanently blocked the
+> buyer's refund. The contract is not proxied, so it cannot be upgraded.
+> Redeploy from `staging` and treat the old address as a throwaway. Do not
+> verify the old address on Blockscout: a verified vulnerable contract is worse
+> than an unverified one, because verification is what invites people to trust
+> and integrate it. See [the delivery and dispute policy](DELIVERY_DISPUTE_POLICY.md).
+
 **Read this first: the testnet changed.** Alfajores (chain 44787) was sunset on
 30 September 2025 together with Ethereum Holesky, which it was anchored to. Its
 RPC endpoints no longer answer. Celo's testnet is now **Celo Sepolia, chain
@@ -17,7 +26,7 @@ Sepolia before being written down. The numbers are measured, not estimated.
 | Explorer | `https://celo-sepolia.blockscout.com` |
 | Faucet | `https://faucet.celo.org/celo-sepolia` |
 | Backup faucet | `https://cloud.google.com/application/web3/faucet/celo/sepolia` |
-| Cost of a full deploy | 3,120,760 gas = **0.164 CELO** at 52.5 gwei |
+| Cost of a full deploy | 3,539,101 gas = **0.186 CELO** at 52.5 gwei |
 
 ---
 
@@ -58,7 +67,7 @@ npm install
 npx hardhat test
 ```
 
-Expect **34 passing**. If that number is lower, stop and say so. Deploying a
+Expect **75 passing**. If that number is lower, stop and say so. Deploying a
 contract whose tests do not pass wastes the deploy and, worse, produces an
 address you will be tempted to treat as real.
 
@@ -73,7 +82,7 @@ curl -s -X POST https://forno.celo-sepolia.celo-testnet.org \
   --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["0xYOUR_ADDRESS","latest"],"id":1}'
 ```
 
-A non-zero hex result means you are funded. You need 0.164 CELO; the faucet
+A non-zero hex result means you are funded. You need 0.186 CELO; the faucet
 gives considerably more.
 
 ## Step 4: fill in `.env`

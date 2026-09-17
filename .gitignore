@@ -11,3 +11,6 @@ coverage.json
 forge-out/
 cache_forge/
 lib/
+
+# Per-deployment records. No secrets, but not repository-wide state.
+deployments/
