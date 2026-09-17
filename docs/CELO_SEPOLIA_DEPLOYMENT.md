@@ -136,3 +136,16 @@ nonzero CELO preflight balance does not guarantee enough gas for both transactio
 - [Circle USDC contract addresses](https://developers.circle.com/stablecoins/usdc-contract-addresses)
 - Local Hardhat configuration, deployment script, test output, user-provided
   deployment output, and the read-only RPC results recorded above.
+# Repository synchronization update (2026-09-17)
+
+Remote staging's additional Sepolia changes were merged with the local deployment
+configuration: local fork support, the Alfajores retirement guard, and Blockscout
+verification configuration are retained. The environment-backed remote Sepolia
+deployment still seeds USDC only, matching the deployed vault recorded below;
+the local fork rehearsal supports the original three-token fixture.
+
+References below to missing verification configuration describe the state at
+deployment time. That configuration is now present, but actual source verification,
+RPC-read retry hardening, and end-to-end integration remain outstanding.
+This record is included in the main/staging synchronization; no new on-chain
+deployment is part of that operation.

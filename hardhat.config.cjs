@@ -39,6 +39,25 @@ module.exports = {
       url: "http://127.0.0.1:8545",
       chainId: 31337,
     },
+    // THE LIVE CELO TESTNET. Deploy here.
+    //
+    // Celo Sepolia replaced Alfajores. Alfajores was sunset on 30 Sep 2025
+    // alongside Ethereum Holesky, which it was anchored to; Celo Sepolia is
+    // anchored to Ethereum Sepolia and is the long-term testnet. It started
+    // from a clean slate, so nothing from Alfajores carried over and every
+    // contract has to be redeployed rather than reused.
+    // The environment-backed celoSepolia entry is defined above.
+    // A local fork of Celo Sepolia, so a deployment can be rehearsed end to end
+    // against the REAL testnet token contracts without spending testnet CELO
+    // or exposing a key. Start it with:
+    //   anvil --fork-url https://forno.celo-sepolia.celo-testnet.org --port 8546
+    celosepoliafork: {
+      url: "http://127.0.0.1:8546",
+      chainId: 11142220,
+    },
+    // DEAD NETWORK, kept only so old references fail loudly rather than
+    // silently pointing at an RPC that no longer answers. Chain 44787 was
+    // sunset on 30 Sep 2025. Use celoSepolia.
     alfajores: {
       url: process.env.CELO_ALFAJORES_RPC_URL || "https://alfajores-forno.celo-testnet.org",
       chainId: 44787,
@@ -52,10 +71,28 @@ module.exports = {
   },
   etherscan: {
     apiKey: {
+      // Blockscout ignores the key but hardhat-verify requires a non-empty
+      // string, so this is a placeholder rather than a credential.
+      celoSepolia: "blockscout",
       alfajores: process.env.CELOSCAN_API_KEY || "empty",
       celo: process.env.CELOSCAN_API_KEY || "empty",
     },
     customChains: [
+      {
+        // Verification goes through Blockscout, not Celoscan.
+        //
+        // Celoscan's V1 API now answers every request with "You are using a
+        // deprecated V1 endpoint, switch to Etherscan API V2", and the V2
+        // endpoint requires an Etherscan key. Blockscout needs no key at all
+        // and serves Celo Sepolia, so it is both fewer moving parts and one
+        // less secret to hold.
+        network: "celoSepolia",
+        chainId: 11142220,
+        urls: {
+          apiURL: "https://celo-sepolia.blockscout.com/api",
+          browserURL: "https://celo-sepolia.blockscout.com",
+        },
+      },
       {
         network: "alfajores",
         chainId: 44787,
