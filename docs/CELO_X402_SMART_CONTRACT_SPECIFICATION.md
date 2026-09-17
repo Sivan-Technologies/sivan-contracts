@@ -15,7 +15,7 @@ Official Links: https://sivantech.online | https://app.sivantech.online
 
 This document specifies the complete architecture, data models, state machine, and technical implementation for the Sivan AI Celo x402 Smart Contract (SivanAgreementVault.sol). 
 
-The contract establishes a 100% non-custodial, autonomous settlement facility on Celo Mainnet that serves as the on-chain settlement layer for x402 payments coordinated off chain by Sivan AI. The contract itself implements escrow, cryptographic release authorization and deadline refunds; the HTTP 402 negotiation lives in Layer 1 below. Under this architecture:
+The contract establishes a 100% non-custodial, autonomous settlement facility on Celo Mainnet that serves as the on-chain settlement layer for x402 payments coordinated off chain by Sivan AI. The contract itself implements non-custodial milestone vault custody, cryptographic release authorization and deadline refunds; the HTTP 402 negotiation lives in Layer 1 below. Under this architecture:
 - Sivan AI holds zero private keys to user funds.
 - Buyer funds are locked directly inside an immutable, audited smart contract on Celo Mainnet.
 - Settlement release requires dual cryptographic authorization: the buyer connected wallet signature (e.g. via MiniPay) and the Sivan AI registered ERC-8004 agent attestation.

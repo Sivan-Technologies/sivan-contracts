@@ -2,10 +2,10 @@
 
 Autonomous, Non-Custodial Service Agreement Settlement Facility on Celo for Sivan AI and Web3 Builders.
 
-**Where this sits.** Sivan's x402 stack has two layers. Layer 1 is off-chain:
+Where this sits: Sivan's x402 stack has two layers. Layer 1 is off-chain:
 the backend answers HTTP 402 Payment Required with settlement terms and prepares
 EIP-712 payloads. Layer 2 is this contract: the on-chain facility those payments
-settle into, holding escrowed funds and enforcing release, attestation and
+settle into, holding locked agreement funds and enforcing release, attestation and
 deadline refunds.
 
 This repository is Layer 2 only. It contains no HTTP 402 handling, because that
@@ -62,6 +62,17 @@ Requirements: Node.js v20+, npm
 ---
 
 ## 4. Deployment
+
+### Current Celo Sepolia deployment
+
+See the [Sepolia deployment record and next steps](docs/CELO_SEPOLIA_DEPLOYMENT.md)
+for the deployed testnet vault, confirmed allowlist state, deployment verification
+warning, and remaining checks. Do not redeploy the existing vault to resolve that warning.
+
+The current Sepolia network reads `CELO_SEPOLIA_RPC_URL` and
+`CELO_SEPOLIA_CHAIN_ID` from `.env`; deployment reads `CELO_SEPOLIA_USDC`.
+For an explicitly intended new testnet deployment, use `npm run deploy:sepolia`.
+Legacy network commands below are not the Sepolia deployment command.
 
 Configure your environment variables in .env (see .env.example):
 - DEPLOYER_PRIVATE_KEY
