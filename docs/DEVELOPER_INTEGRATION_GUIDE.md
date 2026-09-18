@@ -4,8 +4,7 @@ Document ID: DEVELOPER_INTEGRATION_GUIDE
 Protocol: Sivan Agreement Settlement Facility on Celo
 Target Network: Celo Mainnet (Chain ID 42220) & Alfajores Testnet (Chain ID 44787)
 Registered Attestation Agent: Sivan AI (ERC-8004 Agent #9827, Registry: https://8004scan.io/agents/celo/9827)
-Official Attribution Tag: celo_bafcc2e56bd7
-Founder: Samson Micheal (Abuja, Nigeria)
+Founder: Samson Micheal
 Co-Founder: Jonathan Hart
 
 1. Overview for External Developers & AI Builders

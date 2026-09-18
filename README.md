@@ -122,7 +122,7 @@ npm run deploy:celo
 
 ## 6. Founder & Team
 
-- Founder & CEO: Samson Micheal (Abuja, Nigeria)
+- Founder & CEO: Samson Micheal
 - Co-Founder & Head of Operations: Jonathan Hart
 - Organization: Sivan Technology (https://github.com/Sivan-Technologies)
 - Inquiries: sivantechnology@gmail.com | airspexta@gmail.com
