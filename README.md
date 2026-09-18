@@ -66,6 +66,13 @@ Requirements: Node.js v20+, npm
 
 ## 4. Deployment
 
+### Proposed community arbitration pilot
+
+See [Community arbitration pilot](docs/COMMUNITY_ARBITRATION_PILOT.md) for the
+human-review and three-person appeal-panel design. Parameters and exhausted-panel
+behavior require approval. This policy is not implemented and is not a production
+readiness claim. Vera and all deployed contracts are unchanged by the proposal.
+
 ### Review-only Vera integration plan
 
 See [Sivan–Vera API mapping](docs/SIVAN_VERA_API_INTEGRATION.md) for the current
