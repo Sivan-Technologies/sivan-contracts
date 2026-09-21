@@ -42,7 +42,21 @@ import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
  * so the fuzzer spends its budget on interesting states rather than on reverts,
  * and it tracks the ghost variables the invariants are checked against.
  */
-contract VaultHandler is Test {
+abstract contract ArbitrationTestTerms is Test {
+    address internal constant INDEPENDENT = address(0xBACC);
+
+    function _agree(SivanAgreementVault vault, bytes32 id, address buyer, address contractor,
+        address token, uint256 amount, uint256 hours_) internal {
+        vm.prank(buyer);
+        vault.proposeArbitrationTerms(id, contractor, INDEPENDENT, 3 days,
+            keccak256(abi.encode(token, amount, hours_, address(0))), block.timestamp + 1 days);
+        bytes32 hash = vault.arbitrationTermsHash(buyer, id);
+        vm.prank(contractor);
+        vault.acceptArbitrationTerms(buyer, id, hash, true);
+    }
+}
+
+contract VaultHandler is ArbitrationTestTerms {
     SivanAgreementVault public vault;
     MockERC20 public token;
     /** Private key of the agent attester, so the handler can sign real ones. */
@@ -131,6 +145,7 @@ contract VaultHandler is Test {
 
         if (token.balanceOf(buyer) < amount) return;
 
+        _agree(vault, id, buyer, contractor, address(token), amount, hours_);
         vm.startPrank(buyer);
         token.approve(address(vault), amount);
         try vault.deposit(id, contractor, address(token), amount, hours_, address(0)) {
@@ -241,7 +256,8 @@ contract VaultHandler is Test {
         if (a.state != ISivanAgreementVault.AgreementState.Disputed) return;
 
         uint256 before = token.balanceOf(address(vault));
-        vm.prank(vault.owner());
+        (address primary, address independent,, uint256 deadline,) = vault.arbitrationCases(id);
+        vm.prank(block.timestamp < deadline ? primary : independent);
         try vault.resolveDispute(id, toContractor, "fuzz") {
             uint256 moved = before - token.balanceOf(address(vault));
             ghostPaidOut += moved;
@@ -295,6 +311,8 @@ contract VaultInvariantTest is Test {
         token = new MockERC20("USD Coin", "USDC", 6);
         (address attesterAddr, uint256 attesterKey) = makeAddrAndKey("agent-attester");
         vault = new SivanAgreementVault(feeCollector, attesterAddr, 9827, owner);
+        vm.prank(owner);
+        vault.setSupportedToken(address(token), true);
 
         address[] memory actors = new address[](4);
         for (uint256 i = 0; i < 4; i++) {
@@ -399,107 +417,22 @@ contract VaultInvariantTest is Test {
         }
     }
 
-    /**
-     * 3a. NO AGREEMENT CAN BE LOCKED FOREVER.
-     *
-     * The property the delivery lockup violated. Every agreement still holding
-     * money must have a reachable exit, and for the two states a single party
-     * can force the vault into, that exit must be reachable WITHOUT anyone's
-     * cooperation.
-     *
-     *   Funded     the buyer refunds once the deadline passes
-     *   Delivered  the buyer refunds once deliveredAt + reviewWindow passes
-     *   Disputed   the owner adjudicates; both parties consented to that by
-     *              escalating, and neither can be dragged there unilaterally
-     *
-     * The assertion is that the unlock time is FINITE and BOUNDED, not merely
-     * that one exists. Before the fix, a Delivered agreement's unlock time was
-     * infinity: no value of block.timestamp made refundBuyer succeed. Stating
-     * it as a bound is what makes the test fail if someone later raises
-     * MAX_DELIVERY_REVIEW_WINDOW to something absurd, which would technically
-     * still be "reachable" while being useless to a real buyer.
-     */
-    function invariant_everyOpenAgreementHasABoundedExit() public view {
-        /**
-         * AN AUDIT CALLED THIS INVARIANT OUT, CORRECTLY.
-         *
-         * The Disputed branch used to assert only that `disputedAt` was
-         * non-zero. A timestamp existing says nothing about whether anyone can
-         * ever get their money out, so the invariant carried a name it had not
-         * earned: it would have passed while a dispute sat frozen forever
-         * waiting on an owner who had renounced.
-         *
-         * It now asserts the property the name claims. For every state that
-         * still holds funds there must be a time, computable from the
-         * agreement itself and bounded by contract constants, after which some
-         * caller can force the money out. Not "eventually" but "by then".
-         */
-        uint256 maxWindow = vault.MAX_DELIVERY_REVIEW_WINDOW();
-        uint256 arbitration = vault.ARBITRATION_PERIOD();
-        uint256 grace = vault.DISPUTE_FILING_GRACE();
-        uint256 n = handler.agreementCount();
-
-        for (uint256 i = 0; i < n; i++) {
-            ISivanAgreementVault.Agreement memory a = vault.getAgreement(handler.agreementAt(i));
-
-            bool open =
-                a.state == ISivanAgreementVault.AgreementState.Funded ||
-                a.state == ISivanAgreementVault.AgreementState.Delivered ||
-                a.state == ISivanAgreementVault.AgreementState.Disputed;
-            if (!open) continue;
-
-            /**
-             * Every open agreement carries its unlock time explicitly. This is
-             * the field that replaced recomputing from mutable globals, which
-             * is what let a settings change revoke a vested refund.
-             */
-            assertGt(a.refundUnlockAt, 0, "open agreement with no refund unlock time");
-
-            /**
-             * THE WORST CASE IS BOUNDED BY CONSTANTS, NOT BY OWNER BEHAVIOUR.
-             *
-             * Deadline, plus at most one review window, plus at most one
-             * arbitration period, plus the filing grace. Each of those moves
-             * happens at most once per agreement, so this ceiling holds no
-             * matter how the parties interleave their actions.
-             */
-            uint256 worstCase = a.deadlineTimestamp + maxWindow + grace + arbitration;
-            assertLe(
-                a.refundUnlockAt,
-                worstCase,
-                "refund unlock exceeds the worst case the constants permit"
-            );
-
-            if (a.state == ISivanAgreementVault.AgreementState.Delivered) {
-                assertGt(a.deliveredAt, 0, "Delivered with no deliveredAt stamp");
-                // A post-deadline claim must never reset the clock.
-                assertLe(
-                    a.deliveredAt,
-                    a.deadlineTimestamp,
-                    "delivery recorded after the deadline"
-                );
-                // The window applied is the one snapshotted at funding, so a
-                // later re-pricing cannot have moved this agreement.
-                assertEq(
-                    a.refundUnlockAt,
-                    a.deliveredAt + a.reviewWindowSnapshot,
-                    "delivered unlock does not match the snapshotted window"
-                );
-            }
-
-            if (a.state == ISivanAgreementVault.AgreementState.Disputed) {
-                assertGt(a.disputedAt, 0, "Disputed with no disputedAt stamp");
-                /**
-                 * The exit is claimArbitrationTimeout, which is permissionless.
-                 * Asserting the unlock equals disputedAt + ARBITRATION_PERIOD
-                 * is what makes "bounded" real: it pins the exit to a constant
-                 * rather than to whether an owner chooses to act.
-                 */
-                assertEq(
-                    a.refundUnlockAt,
-                    a.disputedAt + arbitration,
-                    "disputed unlock is not exactly one arbitration period out"
-                );
+    /// Deadlines govern escalation, not a guaranteed forced payout.
+    function invariant_openAgreementClocksAndAuthorityAreFixed() public view {
+        for (uint256 i = 0; i < handler.agreementCount(); i++) {
+            bytes32 id = handler.agreementAt(i);
+            ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
+            if (a.state == ISivanAgreementVault.AgreementState.Funded) {
+                assertEq(a.refundUnlockAt, a.deadlineTimestamp);
+            } else if (a.state == ISivanAgreementVault.AgreementState.Delivered) {
+                assertLe(a.deliveredAt, a.deadlineTimestamp);
+                assertEq(a.refundUnlockAt, a.deliveredAt + a.reviewWindowSnapshot);
+            } else if (a.state == ISivanAgreementVault.AgreementState.Disputed) {
+                (address primary, address independent, uint256 period, uint256 deadline,) = vault.arbitrationCases(id);
+                assertTrue(period == 1 days || period == 3 days || period == 7 days);
+                assertEq(deadline, a.disputedAt + period);
+                assertTrue(primary != independent && independent != address(0));
+                assertFalse(a.disputeResolvedByTimeout);
             }
         }
     }
@@ -535,7 +468,7 @@ contract VaultInvariantTest is Test {
 /**
  * STATELESS FUZZING. Single functions, millions of random inputs.
  */
-contract VaultFuzzTest is Test {
+contract VaultFuzzTest is ArbitrationTestTerms {
     SivanAgreementVault vault;
     MockERC20 token;
 
@@ -554,61 +487,31 @@ contract VaultFuzzTest is Test {
         token.approve(address(vault), type(uint256).max);
     }
 
-    /**
-     * THE PERMISSIONLESS EXIT ACTUALLY EXECUTES.
-     *
-     * An audit noted the bounded-exit invariant only checked that a timestamp
-     * existed, not that anyone could act on it. My first attempt to close that
-     * was a stateful invariant, and it was WORSE than the gap it replaced: a
-     * diagnostic counter proved it observed ZERO disputed agreements on every
-     * run, because a `public` invariant executes as its own single-call
-     * sequence rather than after the handler's. It passed with
-     * assertTrue(false) sitting in its body.
-     *
-     * Deterministic instead. This builds the exact state and calls the real
-     * function from an address with no role, so there is no question of
-     * whether the code under test ran.
-     */
-    function test_disputedFundsRecoverableByAnyoneAfterTimeout() public {
+    /// The original multi-transaction exploit must fail after escalation.
+    function test_timeoutCannotRestoreBuyerRefund() public {
         bytes32 id = keccak256("arbitration-timeout");
+        _agree(vault, id, buyer, contractor, address(token), 1_000e6, 48);
         vm.prank(buyer);
         vault.deposit(id, contractor, address(token), 1_000e6, 48, address(0));
-
+        vm.prank(contractor);
+        vault.markDelivered(id, "ipfs://work");
         vm.prank(buyer);
         vault.raiseDispute(id, "contested");
-
-        ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
-        assertEq(uint8(a.state), uint8(ISivanAgreementVault.AgreementState.Disputed));
-        assertEq(a.refundUnlockAt, a.disputedAt + vault.ARBITRATION_PERIOD());
-
-        // One second early: still closed, so the period is genuinely enforced.
-        vm.warp(a.refundUnlockAt);
+        (,,, uint256 deadline,) = vault.arbitrationCases(id);
+        vm.warp(deadline - 1);
         vm.expectRevert("Arbitration period still running");
         vault.claimArbitrationTimeout(id);
-
-        // One second late: anyone at all can lift the freeze.
-        //
-        // The timeout RESTORES the pre-dispute position, it does not award the
-        // funds. An earlier version always refunded the buyer, and testing that
-        // showed it let a buyer steal genuinely delivered work by stalling an
-        // absent owner. Nobody may profit from arbitration failing.
-        vm.warp(a.refundUnlockAt + 1);
+        vm.warp(deadline);
         uint256 before = token.balanceOf(buyer);
-        vm.prank(address(0xDEADBEEF));
         vault.claimArbitrationTimeout(id);
-
-        assertEq(token.balanceOf(buyer) - before, 0, "timeout must not move money");
-        assertEq(
-            uint8(vault.getAgreement(id).state),
-            uint8(ISivanAgreementVault.AgreementState.Funded),
-            "undelivered agreement should return to Funded"
-        );
-
-        // And the funds genuinely do escape, via the ordinary deadline refund.
-        vm.warp(vault.getAgreement(id).refundUnlockAt + 1);
+        assertEq(token.balanceOf(buyer), before);
+        assertEq(uint8(vault.getAgreement(id).state), uint8(ISivanAgreementVault.AgreementState.Disputed));
         vm.prank(buyer);
+        vm.expectRevert("Cannot refund in current state");
         vault.refundBuyer(id);
-        assertEq(token.balanceOf(buyer) - before, a.totalAmount, "buyer not made whole");
+        vm.prank(INDEPENDENT);
+        vault.resolveDispute(id, false, "independent ruling");
+        assertEq(token.balanceOf(buyer) - before, 1_000e6);
     }
 
     /** Ownership cannot be abandoned while it is the arbiter of last resort. */
@@ -644,6 +547,7 @@ contract VaultFuzzTest is Test {
         hrs = bound(hrs, 1, 720);
         bytes32 id = keccak256(abi.encode(amount, hrs));
 
+        _agree(vault, id, buyer, contractor, address(token), amount, hrs);
         vm.prank(buyer);
         vault.deposit(id, contractor, address(token), amount, hrs, address(0));
 
@@ -659,6 +563,7 @@ contract VaultFuzzTest is Test {
         bytes32 id = keccak256(abi.encode("refund", amount));
 
         uint256 before = token.balanceOf(buyer);
+        _agree(vault, id, buyer, contractor, address(token), amount, 1);
         vm.prank(buyer);
         vault.deposit(id, contractor, address(token), amount, 1, address(0));
 

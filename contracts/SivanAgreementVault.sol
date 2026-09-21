@@ -9,6 +9,8 @@ import "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/ISivanAgreementVault.sol";
 
 /**
@@ -67,27 +69,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     uint256 public constant MIN_DELIVERY_REVIEW_WINDOW = 1 days;
     uint256 public constant MAX_DELIVERY_REVIEW_WINDOW = 30 days;
 
-    /**
-     * How long the owner has to adjudicate a dispute before the buyer can
-     * reclaim the funds without anyone's permission.
-     *
-     * An audit found that a contractor could raise a dispute AFTER the buyer's
-     * refund had already vested, which re-locked funds indefinitely, and that
-     * the owner could renounce ownership mid-dispute and strand them forever.
-     * Both reduce to the same structural error: arbitration had no clock, so
-     * "Disputed" was an exit from every other state and an entrance to none.
-     *
-     * A bounded period fixes both at once. The owner has 14 days to rule. After
-     * that anyone may return the funds to the buyer.
-     *
-     * WHY THE FALLBACK FAVOURS THE BUYER. Arbitration that never happened is
-     * not a finding against either party, so the money returns to where it came
-     * from rather than being awarded to the contractor. That also sets the
-     * incentives correctly: a contractor cannot profit by raising a spurious
-     * dispute and waiting, because waiting returns the funds to the buyer. The
-     * worst a bad-faith dispute can now achieve is delay, bounded and known.
-     */
-    uint256 public constant ARBITRATION_PERIOD = 14 days;
+    // Arbitration periods are accepted per agreement: 1, 3 or 7 days.
 
     /**
      * How long AFTER the refund unlocks a dispute may still be filed.
@@ -98,8 +80,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
      * cancelled a vested refund.
      *
      * Two days is enough for a genuine objection and short enough that the
-     * buyer's exit stays predictable: worst case the refund slips by this
-     * window plus the arbitration period, and never further.
+     * dispute filing remains bounded. Once disputed, however, funds may
+     * stay locked indefinitely without a ruling or contractor-consented refund.
      */
     uint256 public constant DISPUTE_FILING_GRACE = 2 days;
 
@@ -114,6 +96,43 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     bytes32 public constant CONTRACTOR_CONSENT_TYPEHASH = keccak256(
         "ContractorRefundConsent(bytes32 agreementId,uint256 nonce)"
     );
+
+    bytes32 public constant DISPUTE_SETTLEMENT_TYPEHASH = keccak256(
+        "DisputeSettlement(bytes32 agreementId,uint256 buyerRefund,uint256 nonce,uint256 expiry)"
+    );
+    event DisputeSettledByAgreement(bytes32 indexed agreementId, uint256 buyerRefund, uint256 contractorNet, uint256 feeAmount);
+
+    /// @notice Both parties can settle a dispute, including an indefinitely stalled escalation.
+    /// @dev Fee snapshots apply proportionally only to the portion awarded to the contractor.
+    function settleDisputeByAgreement(
+        bytes32 agreementId,
+        uint256 buyerRefund,
+        uint256 expiry,
+        bytes calldata buyerSignature,
+        bytes calldata contractorSignature
+    ) external override nonReentrant {
+        Agreement storage agr = agreements[agreementId];
+        require(agr.state == AgreementState.Disputed, "Agreement is not disputed");
+        require(buyerRefund <= agr.totalAmount, "Refund exceeds deposit");
+        require(expiry >= block.timestamp && expiry <= block.timestamp + MAX_AUTHORIZATION_WINDOW, "Invalid settlement expiry");
+        uint256 nonce = agreementNonces[agreementId];
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(
+            DISPUTE_SETTLEMENT_TYPEHASH, agreementId, buyerRefund, nonce, expiry
+        )));
+        require(SignatureChecker.isValidSignatureNow(agr.buyer, digest, buyerSignature), "Buyer settlement consent required");
+        require(SignatureChecker.isValidSignatureNow(agr.contractor, digest, contractorSignature), "Contractor settlement consent required");
+        agreementNonces[agreementId] = nonce + 1;
+        uint256 contractorGross = agr.totalAmount - buyerRefund;
+        uint256 fee = Math.mulDiv(agr.feeAmount, contractorGross, agr.totalAmount);
+        uint256 partnerFee = Math.mulDiv(agr.partnerFeeAmount, contractorGross, agr.totalAmount);
+        uint256 contractorNet = contractorGross - fee;
+        agr.state = contractorGross == 0 ? AgreementState.Refunded : AgreementState.Released;
+        if (buyerRefund > 0) IERC20(agr.token).safeTransfer(agr.buyer, buyerRefund);
+        if (contractorNet > 0) IERC20(agr.token).safeTransfer(agr.contractor, contractorNet);
+        if (fee > partnerFee) IERC20(agr.token).safeTransfer(feeCollector, fee - partnerFee);
+        if (partnerFee > 0) IERC20(agr.token).safeTransfer(agr.partnerAddress, partnerFee);
+        emit DisputeSettledByAgreement(agreementId, buyerRefund, contractorNet, fee);
+    }
 
     /**
      * How long a delivery claim suspends the buyer's timeout refund.
@@ -140,6 +159,86 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
     mapping(bytes32 => Agreement) public agreements;
     mapping(bytes32 => uint256) public agreementNonces;
+    struct ArbitrationTerms {
+        address contractor;
+        address primaryReviewer;
+        address independentReviewer;
+        uint256 primaryReviewPeriod;
+        bytes32 fundingHash;
+        uint256 expiresAt;
+        uint256 deliveryWindow;
+        bytes32 feePolicyHash;
+        bool contractorAccepted;
+    }
+
+    struct ArbitrationCase {
+        address primaryReviewer;
+        address independentReviewer;
+        uint256 primaryReviewPeriod;
+        uint256 primaryDeadline;
+        bool escalated;
+    }
+
+    mapping(address => mapping(bytes32 => ArbitrationTerms)) public proposedArbitrationTerms;
+    mapping(bytes32 => ArbitrationCase) public arbitrationCases;
+
+    event ArbitrationTermsProposed(bytes32 indexed agreementId, address indexed buyer, bytes32 termsHash);
+    event ArbitrationTermsAccepted(bytes32 indexed agreementId, address indexed buyer, address indexed contractor, bytes32 termsHash, bool accepted);
+    event ArbitrationTermsLocked(bytes32 indexed agreementId, bytes32 termsHash, address primaryReviewer, address independentReviewer, uint256 primaryReviewPeriod);
+    event ArbitrationReviewStarted(bytes32 indexed agreementId, uint256 primaryDeadline);
+    event ArbitrationEscalated(bytes32 indexed agreementId, address indexed independentReviewer);
+
+    /// @notice Buyer proposes immutable funding and arbitration terms before any deposit.
+    /// @dev fundingHash = keccak256(abi.encode(token, amount, deadlineHours, partnerAddress)).
+    /// No automatic outcome exists if the independent reviewer does not act.
+    function proposeArbitrationTerms(
+        bytes32 agreementId,
+        address contractor,
+        address independentReviewer,
+        uint256 primaryReviewPeriod,
+        bytes32 fundingHash,
+        uint256 expiresAt
+    ) external override {
+        require(agreementId != bytes32(0), "Invalid agreement id");
+        require(agreements[agreementId].state == AgreementState.Uninitialized, "Agreement already exists");
+        require(contractor != address(0) && contractor != msg.sender, "Invalid contractor");
+        require(owner() != msg.sender && owner() != contractor, "Primary reviewer conflicts with party");
+        require(independentReviewer != address(0) && independentReviewer != address(this) && independentReviewer != owner()
+            && independentReviewer != msg.sender && independentReviewer != contractor
+            && independentReviewer != agentAttester && independentReviewer != feeCollector,
+            "Independent reviewer conflict");
+        require(primaryReviewPeriod == 1 days || primaryReviewPeriod == 3 days || primaryReviewPeriod == 7 days,
+            "Review period must be 1, 3 or 7 days");
+        require(expiresAt > block.timestamp, "Terms expired");
+        proposedArbitrationTerms[msg.sender][agreementId] = ArbitrationTerms(
+            contractor, owner(), independentReviewer, primaryReviewPeriod, fundingHash,
+            expiresAt, deliveryReviewWindow, _feePolicyHash(), false
+        );
+        emit ArbitrationTermsProposed(agreementId, msg.sender, arbitrationTermsHash(msg.sender, agreementId));
+    }
+
+    function arbitrationTermsHash(address buyer, bytes32 agreementId) public view override returns (bytes32) {
+        ArbitrationTerms memory terms = proposedArbitrationTerms[buyer][agreementId];
+        // Acceptance is not part of the signed-off terms themselves.
+        terms.contractorAccepted = false;
+        return keccak256(abi.encode(block.chainid, address(this), buyer, agreementId, terms));
+    }
+
+    function _feePolicyHash() internal view returns (bytes32) {
+        return keccak256(abi.encode(defaultFeeBps, partnerRevenueShareBps, dynamicTieredFeesEnabled,
+            tier1UpperUnits, tier1Bps, tier2UpperUnits, tier2Bps, tier3Bps, feeCollector));
+    }
+
+    /// @notice Contractor accepts or revokes exactly the terms they inspected.
+    function acceptArbitrationTerms(address buyer, bytes32 agreementId, bytes32 expectedHash, bool accepted) external override {
+        require(agreements[agreementId].state == AgreementState.Uninitialized, "Agreement already exists");
+        ArbitrationTerms storage terms = proposedArbitrationTerms[buyer][agreementId];
+        require(msg.sender == terms.contractor, "Only proposed contractor");
+        require(expectedHash == arbitrationTermsHash(buyer, agreementId), "Terms changed");
+        require(terms.expiresAt > block.timestamp, "Terms expired");
+        terms.contractorAccepted = accepted;
+        emit ArbitrationTermsAccepted(agreementId, buyer, msg.sender, expectedHash, accepted);
+    }
     mapping(address => bool) public supportedTokens;
     /** True once the owner lists a first token. See setSupportedToken. */
     bool public tokenAllowlistEnforced;
@@ -423,6 +522,17 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Uninitialized, "Agreement already exists");
 
+        ArbitrationTerms memory terms = proposedArbitrationTerms[msg.sender][agreementId];
+        require(terms.contractorAccepted && terms.contractor == contractor, "Arbitration terms not accepted");
+        require(terms.expiresAt > block.timestamp, "Terms expired");
+        require(terms.fundingHash == keccak256(abi.encode(token, amount, deadlineHours, partnerAddress)), "Funding terms changed");
+        require(terms.feePolicyHash == _feePolicyHash(), "Fee policy changed: accept new terms");
+        arbitrationCases[agreementId] = ArbitrationCase(
+            terms.primaryReviewer, terms.independentReviewer, terms.primaryReviewPeriod, 0, false
+        );
+        emit ArbitrationTermsLocked(agreementId, arbitrationTermsHash(msg.sender, agreementId),
+            terms.primaryReviewer, terms.independentReviewer, terms.primaryReviewPeriod);
+
         uint256 feeBps;
         {
             // Price against the TOKEN's decimals, not an assumed 6.
@@ -492,7 +602,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
              * forward by rules written here, never by a later settings change.
              */
             refundUnlockAt: block.timestamp + (deadlineHours * 1 hours),
-            reviewWindowSnapshot: deliveryReviewWindow
+            reviewWindowSnapshot: terms.deliveryWindow
         });
 
         emit AgreementFunded(
@@ -728,8 +838,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     // ─── Safety Lifecycle: Timeout Auto-Refund ───────────────────────────────
 
     /**
-     * @notice Allows the buyer to autonomously reclaim 100% of deposited funds if deadline expires.
-     * @dev Zero agent or admin intervention required. True non-custodial guarantee.
+     * @notice Buyer may reclaim the full deposit after its deadline only while undisputed.
+     * @dev Disputed funds require an authorized ruling or voluntary settlement.
      */
     function refundBuyer(bytes32 agreementId) external override nonReentrant {
         Agreement storage agr = agreements[agreementId];
@@ -745,11 +855,9 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
          * already funded and already delivered. Terms changed underneath a
          * deal in flight.
          *
-         * `refundUnlockAt` is now authoritative. It is set at deposit and only
-         * ever moved forward by two explicit events, each of which happens at
-         * most once: delivery opens the review window, and a dispute opens the
-         * arbitration period. Nothing else can move it, so the buyer's
-         * earliest exit is knowable from the agreement alone.
+         * `refundUnlockAt` governs undisputed funds. It is set at deposit and
+         * moves once when delivery opens the agreed inspection window.
+         * A dispute has a separate primaryDeadline and disables this exit.
          *
          * DELIVERY DELAYS THE REFUND, IT DOES NOT CANCEL IT. An honest
          * contractor is unaffected: a buyer who received real work has every
@@ -758,8 +866,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
          *
          * Disputed is deliberately NOT refundable through this function. Once
          * either side escalates, unilateral exits close for both and the money
-         * moves only by resolveDispute or, if arbitration never happens,
-         * claimArbitrationTimeout.
+         * moves only by an authorized ruling or contractor-consented refund.
+         * A timeout changes reviewer authority, not refund eligibility.
          */
         require(
             agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered,
@@ -851,20 +959,11 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             "Only a party may dispute"
         );
         require(bytes(reason).length > 0, "Reason required");
-        /**
-         * ONE DISPUTE PER AGREEMENT.
-         *
-         * Because a timeout now restores the pre-dispute position instead of
-         * awarding funds, an agreement can return to Delivered or Funded with
-         * its dispute already spent. Without this check a party could dispute,
-         * stall the owner for 14 days, dispute again, and defer settlement
-         * indefinitely in 14 day increments, which is the original permanent
-         * lock wearing a different hat.
-         */
+        // A dispute never returns to a unilateral refund or release state.
         require(agr.disputedAt == 0, "Dispute already used for this agreement");
 
         /**
-         * A DISPUTE CANNOT REVOKE A REFUND THAT HAS ALREADY VESTED.
+         * CONTRACTOR DISPUTE FILING HAS A BOUNDED GRACE PERIOD.
          *
          * This check did not exist, and its absence undid the whole point of
          * the previous fix. Closing markDelivered as a route to a permanent
@@ -894,127 +993,50 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         agr.state = AgreementState.Disputed;
         agr.disputedAt = block.timestamp;
 
-        /**
-         * Arbitration gets its own bounded clock. If the owner never rules,
-         * claimArbitrationTimeout opens at this time and anyone may return the
-         * funds to the buyer.
-         */
-        uint256 previousUnlock = agr.refundUnlockAt;
-        agr.refundUnlockAt = block.timestamp + ARBITRATION_PERIOD;
-
+        ArbitrationCase storage review = arbitrationCases[agreementId];
+        review.primaryDeadline = block.timestamp + review.primaryReviewPeriod;
         emit AgreementDisputed(agreementId, msg.sender, reason);
-        emit RefundUnlockScheduled(
-            agreementId,
-            previousUnlock,
-            agr.refundUnlockAt,
-            "arbitration period opened"
-        );
+        emit ArbitrationReviewStarted(agreementId, review.primaryDeadline);
     }
 
-    /**
-     * @notice Returns funds to the buyer when arbitration never happened.
-     *
-     * @dev THE GUARANTEE THAT MAKES "NO PERMANENT LOCK" TRUE.
-     *
-     * Every other exit from Disputed requires a specific party to act:
-     * resolveDispute needs the owner, mutualRefund needs the counterparty.
-     * An audit demonstrated the consequence by renouncing ownership while a
-     * dispute was open, after which no address on earth could move the funds.
-     * A lost owner key produces the same outcome without anyone intending it.
-     *
-     * This function is deliberately PERMISSIONLESS. It takes no privileged
-     * role, so it still works with a renounced owner, a lost key, or an
-     * operator who has simply stopped responding. It is also not pausable,
-     * because a pause must never be able to trap money already inside.
-     *
-     * It cannot be abused to skip arbitration: it only opens after the full
-     * ARBITRATION_PERIOD, and it can only send funds to the buyer, which is
-     * where they came from.
-     */
-    function claimArbitrationTimeout(bytes32 agreementId)
-        external
-        override
-        nonReentrant
-    {
-        Agreement storage agr = agreements[agreementId];
-        require(agr.state == AgreementState.Disputed, "Agreement is not disputed");
-        require(
-            block.timestamp > agr.refundUnlockAt,
-            "Arbitration period still running"
-        );
+    /// @notice Permissionless escalation after the primary deadline; never moves funds.
+    /// @dev The agreement stays Disputed even if the independent reviewer never acts.
+    /// Mutual refund and the independent ruling remain available, including while paused.
+    function claimArbitrationTimeout(bytes32 agreementId) external override nonReentrant {
+        require(agreements[agreementId].state == AgreementState.Disputed, "Agreement is not disputed");
+        ArbitrationCase storage review = arbitrationCases[agreementId];
+        require(block.timestamp >= review.primaryDeadline, "Arbitration period still running");
+        require(!review.escalated, "Arbitration already escalated");
+        _escalateArbitration(agreementId, review);
+    }
 
-        /**
-         * THE TIMEOUT RESTORES THE PRE-DISPUTE POSITION. IT DOES NOT PICK A
-         * WINNER.
-         *
-         * My first version always refunded the buyer, and testing my own fix
-         * showed that handed the buyer a clean theft: accept genuinely
-         * delivered work, file a bogus dispute (buyers are exempt from the
-         * filing deadline, deliberately), wait out an absent owner, take 100%
-         * back. The contractor did the work and received nothing.
-         *
-         * The error was treating "no ruling" as a ruling. A timeout is the
-         * absence of a decision, so it must not move value in a direction
-         * neither party earned. What it should do is undo the freeze and
-         * return both sides to exactly where they stood before the dispute
-         * was filed, then let the ordinary clock run.
-         *
-         * Concretely: an agreement that was DELIVERED goes back to Delivered,
-         * where the contractor can still be paid and the buyer's refund is
-         * governed by the review window they originally agreed. One that was
-         * merely FUNDED goes back to Funded, where an undelivered deadline
-         * still entitles the buyer to a refund.
-         *
-         * Nobody profits from arbitration failing, which is the property that
-         * makes the fallback safe to leave permissionless. Deliberately
-         * stalling the owner now gains you nothing, so there is no reason to
-         * try.
-         *
-         * A dispute can only be raised ONCE per agreement, enforced below, so
-         * this cannot be used to loop the clock forever. The restored unlock
-         * keeps its original schedule rather than being pushed out again.
-         */
-        agr.disputeResolvedByTimeout = true;
-
-        if (agr.deliveredAt != 0) {
-            agr.state = AgreementState.Delivered;
-            agr.refundUnlockAt = agr.deliveredAt + agr.reviewWindowSnapshot;
-        } else {
-            agr.state = AgreementState.Funded;
-            agr.refundUnlockAt = agr.deadlineTimestamp;
+    function _escalateArbitration(bytes32 agreementId, ArbitrationCase storage review) internal {
+        if (!review.escalated) {
+            review.escalated = true;
+            emit ArbitrationTimedOut(agreementId, msg.sender, 0);
+            emit ArbitrationEscalated(agreementId, review.independentReviewer);
         }
-
-        emit ArbitrationTimedOut(agreementId, msg.sender, 0);
-        emit RefundUnlockScheduled(
-            agreementId,
-            block.timestamp,
-            agr.refundUnlockAt,
-            "arbitration timed out, pre-dispute position restored"
-        );
     }
 
     /**
-     * @notice Owner adjudicates a disputed agreement, moving funds one way.
+     * @notice The agreed reviewer adjudicates a disputed agreement.
      *
      * @dev THE ARBITER'S POWER IS DELIBERATELY NARROW.
      *
-     * This is the only function where a party other than buyer or contractor
-     * can move money, so its authority is fenced in on every side:
+     * Unlike a relayed bilateral settlement, this ruling does not require the
+     * parties' fresh signatures. Its authority is therefore fenced in:
      *
-     *   - It runs ONLY from Disputed, which only a party can enter. The owner
+     *   - It runs ONLY from Disputed, which only a party can enter. The reviewer
      *     cannot reach into a healthy agreement.
      *   - It is a binary choice between two addresses fixed at deposit time.
-     *     The owner cannot name a recipient, cannot split, cannot take a cut,
+     *     The reviewer cannot name a recipient, cannot split, cannot take a cut,
      *     cannot send funds to itself. It can only answer "which of these two".
      *   - It cannot change the amount. Payout equals netAmount and the fee
      *     equals the fee computed when the agreement was funded.
      *
-     * So the worst a compromised owner can do is decide a genuine dispute
-     * wrongly, in favour of one of the two people who were already arguing
-     * over that exact money. It cannot steal, and it cannot touch anything
-     * nobody has disputed. That is a meaningfully smaller blast radius than
-     * an admin withdrawal function, which is the usual shape of this feature
-     * and the one that keeps appearing in escrow exploits.
+     * A compromised reviewer can still rule unfairly. Pre-funding acceptance
+     * and address separation do not remove that trust risk. Primary authority
+     * expires at the deadline; only the independent reviewer may rule later.
      *
      * NOT PAUSABLE, ON PURPOSE. A paused vault must not be able to trap
      * disputed funds; see refundBuyer and mutualRefund, which are likewise
@@ -1025,9 +1047,17 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         bytes32 agreementId,
         bool releaseToContractor,
         string calldata reason
-    ) external override onlyOwner nonReentrant {
+    ) external override nonReentrant {
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Disputed, "Agreement is not disputed");
+        ArbitrationCase storage review = arbitrationCases[agreementId];
+        if (block.timestamp >= review.primaryDeadline) {
+            require(msg.sender == review.independentReviewer, "Only independent reviewer");
+            _escalateArbitration(agreementId, review);
+        } else {
+            require(msg.sender == review.primaryReviewer, "Only primary reviewer");
+        }
+        require(bytes(reason).length > 0, "Reason required");
 
         if (releaseToContractor) {
             agr.state = AgreementState.Released;

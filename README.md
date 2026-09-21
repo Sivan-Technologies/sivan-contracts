@@ -59,7 +59,7 @@ Requirements: Node.js v20+, npm
    npx hardhat compile
 
 3. Run test suite:
-   npx hardhat test      # 75 tests
+   npx hardhat test --network hardhat
    forge test            # 7 invariants over 12,800 calls, plus 4 fuzz tests
 
 ---
@@ -67,6 +67,12 @@ Requirements: Node.js v20+, npm
 ## 4. Deployment
 
 ### Proposed community arbitration pilot
+
+The current local implementation is documented in [Agreed arbitration](docs/AGREED_ARBITRATION.md):
+bilateral acceptance of 24/72/168-hour primary review, a fixed independent reviewer,
+and no automatic payout on timeout. If independent review stalls, funds can remain
+disputed indefinitely without voluntary settlement. This is not deployed; clients
+must integrate the new acceptance flow.
 
 See [Community arbitration pilot](docs/COMMUNITY_ARBITRATION_PILOT.md) for the
 human-review and three-person appeal-panel design. Parameters and exhausted-panel
@@ -79,7 +85,8 @@ See [Sivan–Vera API mapping](docs/SIVAN_VERA_API_INTEGRATION.md) for the curre
 Vera routes, proposed Sivan adapter, authentication, idempotency limitations and
 human-review boundary. This is a specification, not a deployed integration.
 See [local lifecycle safeguards](docs/LIFECYCLE_SAFETY_UPDATE.md) for test tooling.
-Production remains blocked on the arbitration fallback policy and remote validation.
+Production remains blocked on independent security review, client integration,
+reviewer operational setup and controlled remote validation.
 
 ### Current Celo Sepolia deployment
 
@@ -116,7 +123,7 @@ npm run deploy:celo
 - Safe Transfers: OpenZeppelin SafeERC20 ensuring non-standard token transfers never get stuck.
 - Signature Replay Prevention: EIP-712 typed data hashing including the chain ID, the verifying contract address, a unique agreementId, and per-agreement nonces. The chain ID is bound from block.chainid at construction rather than hardcoded, so the same source deploys correctly to mainnet (42220) and Celo Sepolia (11142220). Hardcoding it would make every signature on the other network invalid.
 - Strict Protocol Fee Separation: On-chain transfer fees (Sivan Transfer Fee) are completely decoupled from fiat bank dispersal fees (Sivan Off-Ramp Fee).
-- No Permanent Lockups: every agreement holding funds has an exit reachable within a bounded, known time. A delivery claim delays the buyer's refund by a review window; it cannot cancel it. Either party can escalate to arbitration, and the owner can neither freeze an undisputed agreement nor choose a recipient outside the two parties. See [the delivery and dispute policy](docs/DELIVERY_DISPUTE_POLICY.md).
+- Dispute safeguards: primary nonresponse escalates to the agreed independent reviewer, never to an automatic buyer refund. If independent review and voluntary settlement both fail, disputed funds can remain locked indefinitely. See [the current arbitration policy](docs/AGREED_ARBITRATION.md).
 
 ---
 

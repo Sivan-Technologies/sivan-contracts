@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
@@ -76,7 +77,7 @@ describe("SivanAgreementVault", function () {
       const deadlineHours = 24;
 
       await expect(
-        vault.connect(buyer).deposit(
+        fundWithTerms(vault.connect(buyer),
           agreementId,
           contractor.address,
           await usdc.getAddress(),
@@ -104,7 +105,7 @@ describe("SivanAgreementVault", function () {
       const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_002"));
       const amount = ethers.parseUnits("20", 6);
 
-      await vault.connect(buyer).deposit(
+      await fundWithTerms(vault.connect(buyer),
         agreementId,
         contractor.address,
         await usdc.getAddress(),
@@ -128,7 +129,7 @@ describe("SivanAgreementVault", function () {
       const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_003"));
       const amount = ethers.parseUnits("100", 6); // Tier 2: 0.75% fee = 0.75 USDC
 
-      await vault.connect(buyer).deposit(
+      await fundWithTerms(vault.connect(buyer),
         agreementId,
         contractor.address,
         await usdc.getAddress(),
@@ -194,7 +195,7 @@ describe("SivanAgreementVault", function () {
       const amount = ethers.parseUnits("30", 6);
       const deadlineHours = 12;
 
-      await vault.connect(buyer).deposit(
+      await fundWithTerms(vault.connect(buyer),
         agreementId,
         contractor.address,
         await usdc.getAddress(),

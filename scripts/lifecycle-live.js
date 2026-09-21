@@ -1,4 +1,5 @@
 const hre = require("hardhat");
+const { arbitrationConfig, acceptArbitrationTerms } = require("./helpers/arbitration-terms");
 const { assertSepolia, recoveryContext, assertActors } = require("./helpers/lifecycle-safety");
 const fs = require("fs");
 const path = require("path");
@@ -149,6 +150,7 @@ async function main() {
   const buyer = buyerKey || signers[1];
   const contractor = roleSigner("CONTRACTOR_PRIVATE_KEY", signers[2]);
   await assertActors(vault, deployer, buyer, contractor);
+  const reviewConfig = await arbitrationConfig(vault, buyer, contractor);
   if (await vault.paused()) throw new Error("Vault is paused; no lifecycle started.");
   const onChainAttester = await vault.agentAttester();
   const attesterSigner = roleSigner("ATTESTER_PRIVATE_KEY", [...signers, buyer, contractor].find(
@@ -233,6 +235,7 @@ async function main() {
     const A = id(1);
     const amount = unit(10);
 
+    await acceptArbitrationTerms(vault, buyer, contractor, A, usdcAddress, amount, 48, hre.ethers.ZeroAddress, reviewConfig, recordTransaction);
     await recordTransaction("approve", await token.connect(buyer).approve(vaultAddress, amount));
     await recordTransaction("deposit", await vault
       .connect(buyer)
@@ -269,6 +272,7 @@ async function main() {
     const A = id(2);
     const amount = unit(10);
 
+    await acceptArbitrationTerms(vault, buyer, contractor, A, usdcAddress, amount, 48, hre.ethers.ZeroAddress, reviewConfig, recordTransaction);
     await recordTransaction("approve", await token.connect(buyer).approve(vaultAddress, amount));
     await recordTransaction("deposit", await vault
       .connect(buyer)
@@ -296,6 +300,7 @@ async function main() {
     resumeId = A;
     const amount = unit(10);
 
+    await acceptArbitrationTerms(vault, buyer, contractor, A, usdcAddress, amount, 1, hre.ethers.ZeroAddress, reviewConfig, recordTransaction);
     await recordTransaction("approve", await token.connect(buyer).approve(vaultAddress, amount));
     // One hour is the contract's minimum deadline, so this is the shortest
     // real wait possible rather than an arbitrary choice.

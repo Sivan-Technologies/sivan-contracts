@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
@@ -45,9 +46,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
     await token.mint(buyer.address, AMOUNT * 10n);
     await token.connect(buyer).approve(await vault.getAddress(), AMOUNT * 10n);
-    await vault
-      .connect(buyer)
-      .deposit(ID, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+    await fundWithTerms(vault.connect(buyer), ID, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
   });
 
   const vaultAddr = () => vault.getAddress();
@@ -107,10 +106,10 @@ describe("Delivery lockup and dispute resolution", function () {
       expect(await stateOf()).to.equal(State.Refunded);
     });
 
-    it("funds are never strandable: every state has a reachable exit", async () => {
+    it("an undisputed delivery has a bounded inspection window", async () => {
       // Funded -> refund after deadline. Proven above.
       // Delivered -> refund after review window. Proven above.
-      // Disputed -> only resolveDispute, proven below.
+      // Disputed funds instead require a ruling or voluntary settlement.
       // This test pins the invariant that Delivered cannot outlive its window.
       await vault.connect(contractor).markDelivered(ID, "ipfs://x");
       const agr = await vault.getAgreement(ID);
@@ -316,9 +315,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
     it("cannot resolve an agreement that is not disputed", async () => {
       const ID2 = ethers.id("agreement-2");
-      await vault
-        .connect(buyer)
-        .deposit(ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+      await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
 
       await expect(
         vault.connect(owner).resolveDispute(ID2, true, "reaching in")
@@ -334,9 +331,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
     it("pays the partner share when one was set", async () => {
       const ID3 = ethers.id("agreement-partner");
-      await vault
-        .connect(buyer)
-        .deposit(ID3, contractor.address, await token.getAddress(), AMOUNT, HOURS, partner.address);
+      await fundWithTerms(vault.connect(buyer), ID3, contractor.address, await token.getAddress(), AMOUNT, HOURS, partner.address);
       await vault.connect(buyer).raiseDispute(ID3, "contested");
 
       const agr = await vault.getAgreement(ID3);
@@ -447,9 +442,7 @@ describe("Delivery lockup and dispute resolution", function () {
       await vault.connect(owner).setDeliveryReviewWindow(short);
 
       const ID2 = ethers.id("funded-after-repricing");
-      await vault
-        .connect(buyer)
-        .deposit(ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+      await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
       await vault.connect(contractor).markDelivered(ID2, "ipfs://x");
       await time.increase(Number(short) + 60);
 

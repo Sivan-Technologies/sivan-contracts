@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
@@ -93,7 +94,7 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
     const vaultAddr = await vault.getAddress();
 
     const a = ID("fot-a");
-    await vault.connect(buyer).deposit(a, contractor.address, await fot.getAddress(),
+    await fundWithTerms(vault.connect(buyer), a, contractor.address, await fot.getAddress(),
       U6(1000), 24, ethers.ZeroAddress);
 
     const received = await fot.balanceOf(vaultAddr);
@@ -121,8 +122,8 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
 
     const a = ID("drain-a");
     const b = ID("drain-b");
-    await vault.connect(buyer).deposit(a, contractor.address, addr, U6(1000), 24, ethers.ZeroAddress);
-    await vault.connect(buyer).deposit(b, contractor.address, addr, U6(1000), 24, ethers.ZeroAddress);
+    await fundWithTerms(vault.connect(buyer), a, contractor.address, addr, U6(1000), 24, ethers.ZeroAddress);
+    await fundWithTerms(vault.connect(buyer), b, contractor.address, addr, U6(1000), 24, ethers.ZeroAddress);
 
     const ag = await vault.getAgreement(a);
     const bg = await vault.getAgreement(b);
@@ -159,15 +160,15 @@ describe("SivanAgreementVault · assets and dynamic fees", function () {
     await vault.connect(owner).setSupportedTokens(
       [await usdc.getAddress(), await usdt.getAddress(), await cngn.getAddress()], true);
 
-    await expect(vault.connect(buyer).deposit(
+    await expect(fundWithTerms(vault.connect(buyer),
       ID("usdt-ok"), contractor.address, await usdt.getAddress(),
       U6(100), 24, ethers.ZeroAddress)).to.not.be.reverted;
 
-    await expect(vault.connect(buyer).deposit(
+    await expect(fundWithTerms(vault.connect(buyer),
       ID("cngn-ok"), contractor.address, await cngn.getAddress(),
       ethers.parseUnits("50000", 18), 24, ethers.ZeroAddress)).to.not.be.reverted;
 
-    await expect(vault.connect(buyer).deposit(
+    await expect(fundWithTerms(vault.connect(buyer),
       ID("skim-no"), contractor.address, await fot.getAddress(),
       U6(100), 24, ethers.ZeroAddress)).to.be.revertedWith("Token not supported");
   });

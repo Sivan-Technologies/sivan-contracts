@@ -1,5 +1,9 @@
 # Community arbitration pilot — policy and implementation plan
 
+> The implemented first step is [Agreed arbitration](AGREED_ARBITRATION.md).
+> Its primary windows are 24/72/168 hours, not the earlier 14-day proposal.
+> Community panels, staking and appeals below remain future proposals.
+
 Date: 2026-09-18
 Status: **proposed rules for approval; not implemented in Solidity**.
 Scope: local tests first, then a separately authorized Celo Sepolia pilot.

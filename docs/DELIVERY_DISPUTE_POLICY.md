@@ -1,5 +1,10 @@
 # Delivery, refund and dispute policy
 
+> Historical design discussion. Arbitration and bounded-exit descriptions below
+> are superseded by [Agreed arbitration](AGREED_ARBITRATION.md), 2026-09-21.
+> Timeout now escalates without restoring refund eligibility; indefinitely stalled
+> independent review can leave funds locked. No deployed contract was upgraded.
+
 This document explains what happens to locked funds when the two parties
 disagree, and why the rules are drawn where they are. It exists because the
 first version of the vault had no answer to that question, and the absence was

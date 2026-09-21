@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
@@ -102,7 +103,7 @@ describe("SivanAgreementVault · security", function () {
     const { vault, token, buyer, contractor, attacker } = await deploy();
     const id = ID("nonce-desync");
 
-    await vault.connect(buyer).deposit(
+    await fundWithTerms(vault.connect(buyer),
       id, contractor.address, await token.getAddress(), USDC(100), 24, ethers.ZeroAddress);
 
     const before = await vault.agreementNonces(id);
@@ -138,7 +139,7 @@ describe("SivanAgreementVault · security", function () {
     await vault.connect(owner).setSupportedToken(await token.getAddress(), true);
 
     await expect(
-      vault.connect(buyer).deposit(
+      fundWithTerms(vault.connect(buyer),
         ID("rogue-token"), contractor.address, await rogue.getAddress(),
         USDC(100), 24, ethers.ZeroAddress)
     ).to.be.revertedWith("Token not supported");
@@ -178,7 +179,7 @@ describe("SivanAgreementVault · security", function () {
     const id = ID("conservation");
     const amount = USDC(333.33);
 
-    await vault.connect(buyer).deposit(
+    await fundWithTerms(vault.connect(buyer),
       id, contractor.address, await token.getAddress(), amount, 24, partner.address);
 
     const vaultAddr = await vault.getAddress();
@@ -202,7 +203,7 @@ describe("SivanAgreementVault · security", function () {
     const { vault, token, buyer, contractor, owner } = await deploy();
     const id = ID("double-release");
 
-    await vault.connect(buyer).deposit(
+    await fundWithTerms(vault.connect(buyer),
       id, contractor.address, await token.getAddress(), USDC(100), 24, ethers.ZeroAddress);
 
     const a = await vault.getAgreement(id);
@@ -221,7 +222,7 @@ describe("SivanAgreementVault · security", function () {
     const { vault, token, buyer, contractor, owner } = await deploy();
     const id = ID("refund-after-release");
 
-    await vault.connect(buyer).deposit(
+    await fundWithTerms(vault.connect(buyer),
       id, contractor.address, await token.getAddress(), USDC(100), 1, ethers.ZeroAddress);
     const a = await vault.getAgreement(id);
     const sig = await agentSig(vault, owner, id, 9827n, "", a.deadlineTimestamp);

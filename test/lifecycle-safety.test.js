@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers, network } = require("hardhat");
 const { assertSepolia, recoveryContext, assertActors } = require("../scripts/helpers/lifecycle-safety");
@@ -28,7 +29,7 @@ describe("Lifecycle script safety (local only)", function () {
     await token.mint(buyer.address, 10000000n);
     await token.connect(buyer).approve(await vault.getAddress(), 10000000n);
     id = ethers.id("recovery-test");
-    await vault.connect(buyer).deposit(id, contractor.address, await token.getAddress(), 10000000n, 1, ethers.ZeroAddress);
+    await fundWithTerms(vault.connect(buyer), id, contractor.address, await token.getAddress(), 10000000n, 1, ethers.ZeroAddress);
   });
   async function expire() {
     await network.provider.send("evm_increaseTime", [3601]);

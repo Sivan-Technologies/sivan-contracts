@@ -43,12 +43,8 @@ interface ISivanAgreementVault {
         /** When a dispute was raised. Zero if none has ever been raised. */
         uint256 disputedAt;
         /**
-         * True once an arbitration timed out without a ruling.
-         *
-         * A timeout restores the pre-dispute position rather than awarding
-         * funds, so this flag is what stops the cycle repeating: without it a
-         * party could dispute, wait out the owner, dispute again, and postpone
-         * settlement forever in 14 day steps.
+         * Legacy field retained for ABI stability; always false for new agreements.
+         * A timeout is not resolution. Read arbitrationCases for escalation status.
          */
         bool disputeResolvedByTimeout;
         /**
@@ -61,14 +57,13 @@ interface ISivanAgreementVault {
          * retroactively revoked a refund a buyer had ALREADY become entitled
          * to on an agreement that was already funded and already delivered.
          *
-         * Set at deposit to the funding deadline, pushed out once by delivery,
-         * and pushed out once by a dispute. It never moves for any other
-         * reason and never moves twice for the same reason, so its value is
-         * always predictable from the agreement's own history.
+         * Set at deposit to the funding deadline and moved once by delivery.
+         * This field does NOT authorize refunds while Disputed. Arbitration
+         * has its own primaryDeadline in arbitrationCases.
          */
         uint256 refundUnlockAt;
         /**
-         * The review window agreed AT FUNDING TIME, in seconds.
+         * The delivery-review window accepted BEFORE FUNDING, in seconds.
          *
          * Snapshotted so re-pricing the global window cannot reach backwards
          * into live agreements. New terms apply to new deals only.
@@ -169,7 +164,7 @@ interface ISivanAgreementVault {
         string reason
     );
 
-    /** Emitted when an unarbitrated dispute times out back to the buyer. */
+    /** Emitted on escalation only. refundAmount is always zero. */
     event ArbitrationTimedOut(
         bytes32 indexed agreementId,
         address indexed caller,
@@ -208,22 +203,21 @@ interface ISivanAgreementVault {
      * @notice Freezes an agreement for arbitration. Callable by either party.
      * @dev The escape hatch from a standoff. Either side may raise a dispute
      *      while funds are still held, which parks the agreement in Disputed
-     *      until the owner adjudicates or the arbitration period expires.
+     *      until an authorized reviewer rules or the parties settle together.
      */
     function raiseDispute(bytes32 agreementId, string calldata reason) external;
 
     /**
-     * @notice Returns funds to the buyer when arbitration was never completed.
-     * @dev Callable by ANYONE once ARBITRATION_PERIOD has elapsed since the
-     *      dispute was raised. This is the fallback that makes the no-permanent
-     *      lock guarantee true: it needs no owner, no counterparty and no
-     *      privileged key, so it survives a renounced owner, a lost key and a
-     *      simply absent operator.
+     * @notice Records escalation when the agreed primary review deadline expires.
+     * @dev Permissionless, non-paying and available while paused. Funds remain
+     *      Disputed; no response from the independent reviewer can mean an
+     *      indefinite lock unless the parties agree to settle.
      */
     function claimArbitrationTimeout(bytes32 agreementId) external;
 
     /**
-     * @notice Owner adjudicates a disputed agreement.
+     * @notice The snapshotted primary reviewer rules before the primary deadline;
+     *         only the snapshotted independent reviewer may rule at or after it.
      * @param releaseToContractor True pays the contractor and takes the fee,
      *        false returns the full amount to the buyer.
      */
@@ -234,4 +228,11 @@ interface ISivanAgreementVault {
     ) external;
 
     function getAgreement(bytes32 agreementId) external view returns (Agreement memory);
+
+    function proposeArbitrationTerms(bytes32 agreementId, address contractor, address independentReviewer,
+        uint256 primaryReviewPeriod, bytes32 fundingHash, uint256 expiresAt) external;
+    function arbitrationTermsHash(address buyer, bytes32 agreementId) external view returns (bytes32);
+    function acceptArbitrationTerms(address buyer, bytes32 agreementId, bytes32 expectedHash, bool accepted) external;
+    function settleDisputeByAgreement(bytes32 agreementId, uint256 buyerRefund, uint256 expiry,
+        bytes calldata buyerSignature, bytes calldata contractorSignature) external;
 }

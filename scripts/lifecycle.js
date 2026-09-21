@@ -1,4 +1,5 @@
 const hre = require("hardhat");
+const { arbitrationConfig, acceptArbitrationTerms } = require("./helpers/arbitration-terms");
 
 /**
  * FULL LIFECYCLE EXERCISE AGAINST REAL USDC.
@@ -179,6 +180,8 @@ async function main() {
   }
   console.log("  buyer   :", buyer.address);
   console.log("  contract:", contractor.address);
+  const reviewConfig = await arbitrationConfig(vault, buyer, contractor);
+  const recordTerms = async (label, tx) => record(label, await tx.wait());
 
   // ── Funding ─────────────────────────────────────────────────────────
   const needed = unit(400);
@@ -254,6 +257,7 @@ async function main() {
   {
     const A = id(1);
     const amount = unit(100);
+    await acceptArbitrationTerms(vault, buyer, contractor, A, USDC, amount, 48, hre.ethers.ZeroAddress, reviewConfig, recordTerms);
 
     record("approve", await (await token.connect(buyer).approve(vaultAddress, amount)).wait());
     record(
@@ -296,6 +300,7 @@ async function main() {
   {
     const A = id(2);
     const amount = unit(60);
+    await acceptArbitrationTerms(vault, buyer, contractor, A, USDC, amount, 1, hre.ethers.ZeroAddress, reviewConfig, recordTerms);
 
     record("approve", await (await token.connect(buyer).approve(vaultAddress, amount)).wait());
     record(
@@ -322,6 +327,7 @@ async function main() {
   {
     const A = id(3);
     const amount = unit(200);
+    await acceptArbitrationTerms(vault, buyer, contractor, A, USDC, amount, 48, hre.ethers.ZeroAddress, reviewConfig, recordTerms);
 
     record("approve", await (await token.connect(buyer).approve(vaultAddress, amount)).wait());
     record(
@@ -366,6 +372,7 @@ async function main() {
   {
     const A = id(4);
     const amount = unit(40);
+    await acceptArbitrationTerms(vault, buyer, contractor, A, USDC, amount, 1, hre.ethers.ZeroAddress, reviewConfig, recordTerms);
 
     record("approve", await (await token.connect(buyer).approve(vaultAddress, amount)).wait());
     record(

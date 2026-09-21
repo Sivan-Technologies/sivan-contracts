@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
@@ -35,9 +36,7 @@ describe("Audit findings: fixes", function () {
     await vault.connect(owner).setSupportedToken(await token.getAddress(), true);
     await token.mint(buyer.address, AMOUNT * 10n);
     await token.connect(buyer).approve(await vault.getAddress(), AMOUNT * 10n);
-    await vault
-      .connect(buyer)
-      .deposit(ID, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+    await fundWithTerms(vault.connect(buyer), ID, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
   });
 
   // ── F1 ──────────────────────────────────────────────────────────────
@@ -78,28 +77,17 @@ describe("Audit findings: fixes", function () {
       );
     });
 
-    it("bounds the total delay: even a disputed agreement always exits", async () => {
+    it("escalates instead of reopening a unilateral refund", async () => {
       await time.increase(HOURS * 3600 + 60);
       await vault.connect(contractor).raiseDispute(ID, "stalling");
 
-      // Was permanent. Now the freeze lifts after ARBITRATION_PERIOD.
-      //
-      // The timeout RESTORES the pre-dispute position rather than paying the
-      // buyer. An earlier version of this fix always refunded, and testing it
-      // showed that let a buyer steal genuinely delivered work by stalling an
-      // absent owner. Nobody may profit from arbitration failing.
-      const period = await vault.ARBITRATION_PERIOD();
+      const period = (await vault.arbitrationCases(ID)).primaryReviewPeriod;
       await time.increase(Number(period) + 60);
       await vault.connect(buyer).claimArbitrationTimeout(ID);
 
-      // Undelivered, so it returns to Funded and the ordinary deadline refund
-      // is available: the funds do exit, which is the actual guarantee.
-      expect((await vault.getAgreement(ID)).state).to.equal(1n); // Funded
-      await expect(vault.connect(buyer).refundBuyer(ID)).to.changeTokenBalance(
-        token,
-        buyer,
-        AMOUNT
-      );
+      expect((await vault.getAgreement(ID)).state).to.equal(5n);
+      await expect(vault.connect(buyer).refundBuyer(ID)).to.be.revertedWith("Cannot refund in current state");
+      expect(await token.balanceOf(await vault.getAddress())).to.equal(AMOUNT);
     });
   });
 
@@ -127,9 +115,7 @@ describe("Audit findings: fixes", function () {
     it("applies a new window only to agreements funded afterwards", async () => {
       await vault.connect(owner).setDeliveryReviewWindow(30 * 24 * 3600);
       const ID2 = ethers.id("after-repricing");
-      await vault
-        .connect(buyer)
-        .deposit(ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
+      await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
 
       expect((await vault.getAgreement(ID2)).reviewWindowSnapshot).to.equal(30n * 24n * 3600n);
       expect((await vault.getAgreement(ID)).reviewWindowSnapshot).to.equal(7n * 24n * 3600n);
@@ -159,17 +145,16 @@ describe("Audit findings: fixes", function () {
       expect(await vault.owner()).to.equal(owner.address);
     });
 
-    it("returns disputed funds even if the owner never rules", async () => {
+    it("enables independent adjudication if the primary reviewer never rules", async () => {
       await vault.connect(buyer).raiseDispute(ID, "contested");
-      const period = await vault.ARBITRATION_PERIOD();
+      const period = (await vault.arbitrationCases(ID)).primaryReviewPeriod;
       await time.increase(Number(period) + 60);
 
-      // Permissionless on purpose: survives a lost key or an absent operator.
-      // It unfreezes rather than awarding, so the buyer's refund comes from
-      // the ordinary path afterwards.
+      // Escalation is permissionless but settlement still requires authority.
       await vault.connect(outsider).claimArbitrationTimeout(ID);
-      expect((await vault.getAgreement(ID)).state).to.equal(1n); // Funded
-      await expect(vault.connect(buyer).refundBuyer(ID)).to.changeTokenBalance(
+      expect((await vault.getAgreement(ID)).state).to.equal(5n);
+      const independent = await ethers.getSigner((await vault.arbitrationCases(ID)).independentReviewer);
+      await expect(vault.connect(independent).resolveDispute(ID, false, "Independent ruling")).to.changeTokenBalance(
         token,
         buyer,
         AMOUNT
@@ -185,11 +170,11 @@ describe("Audit findings: fixes", function () {
 
     it("works while paused, because a pause must not trap funds", async () => {
       await vault.connect(buyer).raiseDispute(ID, "contested");
-      await time.increase(Number(await vault.ARBITRATION_PERIOD()) + 60);
+      await time.increase(Number((await vault.arbitrationCases(ID)).primaryReviewPeriod) + 60);
       await vault.connect(owner).pause();
       await expect(vault.connect(buyer).claimArbitrationTimeout(ID)).to.not.be.reverted;
-      // And the restored refund path is also exempt from pause.
-      await expect(vault.connect(buyer).refundBuyer(ID)).to.not.be.reverted;
+      const independent = await ethers.getSigner((await vault.arbitrationCases(ID)).independentReviewer);
+      await expect(vault.connect(independent).resolveDispute(ID, false, "Independent ruling")).to.not.be.reverted;
     });
 
     it("still lets the owner rule inside the period", async () => {
@@ -252,11 +237,8 @@ describe("Audit findings: fixes", function () {
       await junk.connect(buyer).approve(await vault.getAddress(), amt);
 
       await expect(
-        vault
-          .connect(buyer)
-          .deposit(ethers.id("junk"), contractor.address, await junk.getAddress(), amt, 48, ethers.ZeroAddress)
+        fundWithTerms(vault.connect(buyer), ethers.id("junk"), contractor.address, await junk.getAddress(), amt, 48, ethers.ZeroAddress)
       ).to.be.revertedWith("Token not supported");
     });
   });
 });
-

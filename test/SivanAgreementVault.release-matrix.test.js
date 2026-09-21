@@ -1,3 +1,4 @@
+const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
@@ -64,7 +65,7 @@ describe("SivanAgreementVault · release matrix", function () {
   }
 
   async function fund(vault, usdc, buyer, contractor, id) {
-    await vault.connect(buyer).deposit(
+    await fundWithTerms(vault.connect(buyer),
       id, contractor.address, await usdc.getAddress(), U6(100), 24, ethers.ZeroAddress);
     return vault.getAgreement(id);
   }
