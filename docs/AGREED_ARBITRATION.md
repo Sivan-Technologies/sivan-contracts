@@ -113,6 +113,8 @@ The Hardhat suite passes 131 tests, including timeout followed by immediate
 refund, exact deadline handover, bilateral term acceptance, stale/revoked terms,
 fee changes, paused resolution, signature replay/domain checks and split-payment
 conservation. Lifecycle helper configuration and acceptance are tested locally.
-The Foundry sources were updated, including initializing the invariant fixture's
-token allowlist, but its suite could not be run here: `forge` and `lib/forge-std`
-are absent. No claim of remote end-to-end or independent audit coverage is made.
+On 2026-09-22 the Foundry suite was run and expanded: 21 tests passed, including
+seven invariants at 512 runs × 100 calls and six fuzz tests at 2,048 inputs each.
+Three deliberately passing reproduction tests confirm two unresolved recipient/
+reviewer-conflict findings. See [the full review and reproduction commands](FOUNDRY_SETTLEMENT_REVIEW_2026-09-22.md).
+This is not production clearance, remote end-to-end validation or an independent audit.

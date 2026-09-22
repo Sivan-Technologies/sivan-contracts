@@ -60,7 +60,7 @@ Requirements: Node.js v20+, npm
 
 3. Run test suite:
    npx hardhat test --network hardhat
-   forge test            # 7 invariants over 12,800 calls, plus 4 fuzz tests
+   forge test            # setup and latest findings: docs/FOUNDRY_SETTLEMENT_REVIEW_2026-09-22.md
 
 ---
 

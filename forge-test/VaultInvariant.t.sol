@@ -63,6 +63,7 @@ contract VaultHandler is ArbitrationTestTerms {
     uint256 public attesterKey;
 
     address[] public actors;
+    mapping(address => uint256) internal actorKeys;
     bytes32[] public agreementIds;
     mapping(bytes32 => bool) public known;
 
@@ -87,6 +88,10 @@ contract VaultHandler is ArbitrationTestTerms {
         vault = _vault;
         token = _token;
         actors = _actors;
+        for (uint256 i = 0; i < _actors.length; i++) {
+            require(_actors[i] == vm.addr(0x1000 + i), "Unknown test signer");
+            actorKeys[_actors[i]] = 0x1000 + i;
+        }
         attesterKey = _attesterKey;
     }
 
@@ -201,9 +206,7 @@ contract VaultHandler is ArbitrationTestTerms {
          * testing nothing: 2,500 release calls that all bounced off the first
          * require and never reached settlement.
          */
-        uint256 unlockAt = delivered
-            ? a.deliveredAt + vault.deliveryReviewWindow()
-            : a.deadlineTimestamp;
+        uint256 unlockAt = a.refundUnlockAt;
         if (block.timestamp <= unlockAt) {
             vm.warp(unlockAt + bound(skip, 1, 1 hours));
         }
@@ -268,6 +271,43 @@ contract VaultHandler is ArbitrationTestTerms {
         }
     }
 
+    function escalate(uint256 idSeed, uint256 delay) public {
+        if (agreementIds.length == 0) return;
+        bytes32 id = agreementIds[idSeed % agreementIds.length];
+        if (vault.getAgreement(id).state != ISivanAgreementVault.AgreementState.Disputed) return;
+        (,,, uint256 deadline, bool escalated) = vault.arbitrationCases(id);
+        if (escalated) return;
+        if (block.timestamp < deadline) vm.warp(deadline + bound(delay, 0, 30 days));
+        uint256 before = token.balanceOf(address(vault));
+        vault.claimArbitrationTimeout(id);
+        if (token.balanceOf(address(vault)) != before ||
+            vault.getAgreement(id).state != ISivanAgreementVault.AgreementState.Disputed) ghostFailedSettlements++;
+    }
+
+    function settleByAgreement(uint256 idSeed, uint256 refundSeed) public {
+        if (agreementIds.length == 0) return;
+        bytes32 id = agreementIds[idSeed % agreementIds.length];
+        ISivanAgreementVault.Agreement memory a = vault.getAgreement(id);
+        if (a.state != ISivanAgreementVault.AgreementState.Disputed) return;
+        uint256 refundAmount = bound(refundSeed, 0, a.totalAmount);
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes32 digest = MessageHashUtils.toTypedDataHash(_domainSeparator(), keccak256(abi.encode(
+            vault.DISPUTE_SETTLEMENT_TYPEHASH(), id, refundAmount, vault.agreementNonces(id), expiry
+        )));
+        (uint8 bv, bytes32 br, bytes32 bs) = vm.sign(actorKeys[a.buyer], digest);
+        (uint8 cv, bytes32 cr, bytes32 cs) = vm.sign(actorKeys[a.contractor], digest);
+        uint256 before = token.balanceOf(address(vault));
+        try vault.settleDisputeByAgreement(id, refundAmount, expiry,
+            abi.encodePacked(br, bs, bv), abi.encodePacked(cr, cs, cv)) {
+            uint256 moved = before - token.balanceOf(address(vault));
+            ghostPaidOut += moved;
+            if (moved != a.totalAmount) ghostFailedSettlements++;
+            ghostExpectedBalance -= a.totalAmount;
+        } catch {
+            ghostFailedSettlements++;
+        }
+    }
+
     /** The owner re-prices mid-flight. Fees already locked must not move. */
     function reprice(uint256 t1u, uint256 t1b, uint256 t2u, uint256 t2b, uint256 t3b) public {
         t1u = bound(t1u, 1, 1000);
@@ -316,11 +356,17 @@ contract VaultInvariantTest is Test {
 
         address[] memory actors = new address[](4);
         for (uint256 i = 0; i < 4; i++) {
-            actors[i] = address(uint160(0x1000 + i));
+            actors[i] = vm.addr(0x1000 + i);
             token.mint(actors[i], 10_000_000e6);
         }
 
         handler = new VaultHandler(vault, token, actors, attesterKey);
+        // Seed genuine funded/disputed cases so the invariants cannot pass solely
+        // because deposits reverted or random calls never reached a dispute.
+        handler.deposit(0, 1, 100e6, 24);
+        handler.raiseDispute(0, true);
+        handler.deposit(1, 2, 200e6, 24);
+        assertEq(handler.agreementCount(), 2);
         targetContract(address(handler));
     }
 

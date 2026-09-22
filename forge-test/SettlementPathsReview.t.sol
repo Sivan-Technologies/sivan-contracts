@@ -16,10 +16,22 @@ contract ReviewContractSigner is IERC1271 {
 
 contract ReviewSettlementToken is MockERC20 {
     address public blockedRecipient;
+    address public reentryTarget;
+    bytes public reentryData;
+    bool public reentryAttempted;
+    bool public reentrySucceeded;
     constructor() MockERC20("Review token", "USDC", 6) {}
     function setBlockedRecipient(address recipient) external { blockedRecipient = recipient; }
+    function setReentry(address target, bytes calldata data) external {
+        reentryTarget = target;
+        reentryData = data;
+    }
     function _update(address from, address to, uint256 amount) internal override {
         require(to != blockedRecipient || to == address(0), "Review: blocked recipient");
+        if (from == reentryTarget && reentryTarget != address(0) && !reentryAttempted) {
+            reentryAttempted = true;
+            (reentrySucceeded,) = reentryTarget.call(reentryData);
+        }
         super._update(from, to, amount);
     }
 }
@@ -164,6 +176,29 @@ contract SettlementPathsReviewTest is Test {
         _settle(0);
         assertEq(uint8(vault.getAgreement(ID).state), 3);
         assertEq(token.balanceOf(address(vault)), partnerFee, "Accepted self-recipient strands the partner fee");
+    }
+
+    function test_reentrantSettlementCannotPayTwice() public {
+        _fund(100e6, PARTNER, 1 days);
+        uint256 expiry = block.timestamp + 1 hours;
+        bytes memory b = _signature(BUYER_KEY, 40e6, expiry);
+        bytes memory c = _signature(CONTRACTOR_KEY, 40e6, expiry);
+        token.setReentry(address(vault), abi.encodeCall(vault.settleDisputeByAgreement, (ID, 40e6, expiry, b, c)));
+        vault.settleDisputeByAgreement(ID, 40e6, expiry, b, c);
+        assertTrue(token.reentryAttempted());
+        assertFalse(token.reentrySucceeded());
+        assertEq(token.balanceOf(buyer), 40e6);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(vault.agreementNonces(ID), 1);
+    }
+
+    function test_review_feeCollectorCanBeChangedToVaultAfterFunding() public {
+        _fund(100e6, PARTNER, 1 days);
+        ISivanAgreementVault.Agreement memory a = vault.getAgreement(ID);
+        vault.setFeeCollector(address(vault));
+        _settle(0);
+        assertEq(uint8(vault.getAgreement(ID).state), 3);
+        assertEq(token.balanceOf(address(vault)), a.feeAmount - a.partnerFeeAmount);
     }
 
     function test_review_independentReviewerCanBePaidAsPartner() public {
