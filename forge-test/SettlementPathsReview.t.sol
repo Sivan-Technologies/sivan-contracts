@@ -36,9 +36,8 @@ contract ReviewSettlementToken is MockERC20 {
     }
 }
 
-/// Additional review probes. `test_review_*` deliberately document unsafe
-/// configurations accepted by the current contract; passing those reproductions
-/// is evidence of a finding, NOT a safety assertion or a fixed vulnerability.
+/// Settlement-path review and regression tests. The original unsafe-recipient
+/// reproductions now require rejection before funding or configuration changes.
 contract SettlementPathsReviewTest is Test {
     SivanAgreementVault vault;
     ReviewSettlementToken token;
@@ -59,7 +58,7 @@ contract SettlementPathsReviewTest is Test {
         vault.setSupportedToken(address(token), true);
     }
 
-    function _fund(uint256 amount, address partner, uint256 period) internal {
+    function _prepareFunding(uint256 amount, address partner, uint256 period) internal {
         token.mint(buyer, amount);
         vm.prank(buyer);
         vault.proposeArbitrationTerms(ID, contractor, INDEPENDENT, period,
@@ -67,8 +66,13 @@ contract SettlementPathsReviewTest is Test {
         bytes32 hash = vault.arbitrationTermsHash(buyer, ID);
         vm.prank(contractor);
         vault.acceptArbitrationTerms(buyer, ID, hash, true);
-        vm.startPrank(buyer);
+        vm.prank(buyer);
         token.approve(address(vault), amount);
+    }
+
+    function _fund(uint256 amount, address partner, uint256 period) internal {
+        _prepareFunding(amount, partner, period);
+        vm.startPrank(buyer);
         vault.deposit(ID, contractor, address(token), amount, 24, partner);
         vault.raiseDispute(ID, "Review case");
         vm.stopPrank();
@@ -169,13 +173,14 @@ contract SettlementPathsReviewTest is Test {
         vault.settleDisputeByAgreement(ID, 40e6, expiry, b, c);
     }
 
-    function test_review_partnerVaultLeavesFeeBehind() public {
-        _fund(100e6, address(vault), 1 days);
-        uint256 partnerFee = vault.getAgreement(ID).partnerFeeAmount;
-        assertGt(partnerFee, 0);
-        _settle(0);
-        assertEq(uint8(vault.getAgreement(ID).state), 3);
-        assertEq(token.balanceOf(address(vault)), partnerFee, "Accepted self-recipient strands the partner fee");
+    function test_vaultPartnerRejectedBeforeFunding() public {
+        _prepareFunding(100e6, address(vault), 1 days);
+        vm.prank(buyer);
+        vm.expectRevert("Vault cannot receive fees");
+        vault.deposit(ID, contractor, address(token), 100e6, 24, address(vault));
+        assertEq(uint8(vault.getAgreement(ID).state), 0);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.balanceOf(buyer), 100e6);
     }
 
     function test_reentrantSettlementCannotPayTwice() public {
@@ -192,20 +197,25 @@ contract SettlementPathsReviewTest is Test {
         assertEq(vault.agreementNonces(ID), 1);
     }
 
-    function test_review_feeCollectorCanBeChangedToVaultAfterFunding() public {
+    function test_vaultFeeCollectorRejectedAfterFunding() public {
         _fund(100e6, PARTNER, 1 days);
         ISivanAgreementVault.Agreement memory a = vault.getAgreement(ID);
+        vm.expectRevert("Vault cannot receive fees");
         vault.setFeeCollector(address(vault));
+        assertEq(vault.feeCollector(), FEE);
         _settle(0);
         assertEq(uint8(vault.getAgreement(ID).state), 3);
-        assertEq(token.balanceOf(address(vault)), a.feeAmount - a.partnerFeeAmount);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.balanceOf(FEE), a.feeAmount - a.partnerFeeAmount);
+        assertEq(token.balanceOf(PARTNER), a.partnerFeeAmount);
     }
 
-    function test_review_independentReviewerCanBePaidAsPartner() public {
-        _fund(100e6, INDEPENDENT, 1 days);
-        vm.warp(block.timestamp + 1 days);
-        vm.prank(INDEPENDENT);
-        vault.resolveDispute(ID, true, "Reviewer chooses paid outcome");
-        assertGt(token.balanceOf(INDEPENDENT), 0, "Reviewer receives referral revenue from own ruling");
+    function test_independentReviewerCannotBePartner() public {
+        _prepareFunding(100e6, INDEPENDENT, 1 days);
+        vm.prank(buyer);
+        vm.expectRevert("Independent reviewer fee conflict");
+        vault.deposit(ID, contractor, address(token), 100e6, 24, INDEPENDENT);
+        assertEq(token.balanceOf(address(vault)), 0);
+        assertEq(token.balanceOf(buyer), 100e6);
     }
 }

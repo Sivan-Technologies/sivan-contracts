@@ -12,7 +12,9 @@ guaranteeing a permissionless refund.
 - The primary reviewer is the owner at proposal time, snapshotted for the deal.
   Ownership transfers cannot replace that reviewer on existing agreements.
 - The independent reviewer is agreed before funding. It cannot be zero, the
-  vault, either party, the primary reviewer, agent or fee collector. Separate
+  vault, either party, the primary reviewer, agent or accepted fee collector.
+  Funding also rejects a partner matching the independent reviewer, even at zero
+  fees. Positive fee payments recheck this separation at settlement. Separate
   addresses do not prove organizational independence: verify conflicts, control
   and availability off-chain. A multisig can act as reviewer; the vault does not
   implement a community voting panel.
@@ -88,8 +90,14 @@ nonce; settled agreements cannot settle again.
 The buyer's refund is fee-free. Original fee and partner-fee snapshots are prorated
 on the contractor's gross portion, rounding down. Protocol fee equals prorated
 total fee minus partner fee. Refund + contractor net + protocol + partner equals
-the recorded deposit exactly. No new fee rate is introduced; existing fee-collector
-destination behavior is unchanged. Indexers must process `DisputeSettledByAgreement`
+the recorded deposit exactly. No new fee rate is introduced. The accepted collector
+is snapshotted at funding in `agreementFeeCollectors(agreementId)` and announced by
+`AgreementFeeCollectorLocked`. All settlements use that snapshot, never the current
+global collector. Later collector changes apply only to future funding and invalidate
+previously accepted, unfunded fee terms. There is no per-agreement collector setter
+or fallback to the global collector; choose an accessible, protected recipient.
+This address-level guard cannot prevent common ownership or subsequent forwarding.
+Indexers must process `DisputeSettledByAgreement`
 for the actual refund/net/fee, rather than assume the original full net was paid.
 
 ## Rollout

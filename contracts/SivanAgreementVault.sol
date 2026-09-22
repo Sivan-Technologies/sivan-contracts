@@ -129,8 +129,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         agr.state = contractorGross == 0 ? AgreementState.Refunded : AgreementState.Released;
         if (buyerRefund > 0) IERC20(agr.token).safeTransfer(agr.buyer, buyerRefund);
         if (contractorNet > 0) IERC20(agr.token).safeTransfer(agr.contractor, contractorNet);
-        if (fee > partnerFee) IERC20(agr.token).safeTransfer(feeCollector, fee - partnerFee);
-        if (partnerFee > 0) IERC20(agr.token).safeTransfer(agr.partnerAddress, partnerFee);
+        _payFee(agreementId, agr.token, agreementFeeCollectors[agreementId], fee - partnerFee);
+        _payFee(agreementId, agr.token, agr.partnerAddress, partnerFee);
         emit DisputeSettledByAgreement(agreementId, buyerRefund, contractorNet, fee);
     }
 
@@ -181,6 +181,9 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
     mapping(address => mapping(bytes32 => ArbitrationTerms)) public proposedArbitrationTerms;
     mapping(bytes32 => ArbitrationCase) public arbitrationCases;
+    /// Accepted protocol fee destination, immutable for each funded agreement.
+    mapping(bytes32 => address) public agreementFeeCollectors;
+    event AgreementFeeCollectorLocked(bytes32 indexed agreementId, address indexed collector);
 
     event ArbitrationTermsProposed(bytes32 indexed agreementId, address indexed buyer, bytes32 termsHash);
     event ArbitrationTermsAccepted(bytes32 indexed agreementId, address indexed buyer, address indexed contractor, bytes32 termsHash, bool accepted);
@@ -285,6 +288,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         EIP712("Sivan Celo Settlement Facility", "1")
     {
         require(_feeCollector != address(0), "Invalid fee collector");
+        _requireExternalFeeRecipient(_feeCollector);
         require(_agentAttester != address(0), "Invalid agent attester");
 
         feeCollector = _feeCollector;
@@ -300,8 +304,25 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
     function setFeeCollector(address _newCollector) external onlyOwner {
         require(_newCollector != address(0), "Invalid address");
+        _requireExternalFeeRecipient(_newCollector);
         emit FeeCollectorUpdated(feeCollector, _newCollector);
         feeCollector = _newCollector;
+    }
+
+    /// A transfer to this vault would leave the fee trapped after settlement.
+    /// Zero remains valid for an optional partner when no partner fee is due.
+    function _requireExternalFeeRecipient(address recipient) internal view {
+        require(recipient != address(this), "Vault cannot receive fees");
+    }
+
+    /// Validate at disbursement as well as configuration/funding. A failure
+    /// reverts the entire settlement, including earlier transfers and nonce use.
+    function _payFee(bytes32 agreementId, address token, address recipient, uint256 amount) internal {
+        if (amount == 0) return;
+        _requireExternalFeeRecipient(recipient);
+        require(recipient != address(0), "Invalid fee recipient");
+        require(recipient != arbitrationCases[agreementId].independentReviewer, "Independent reviewer fee conflict");
+        IERC20(token).safeTransfer(recipient, amount);
     }
 
     function setAgentAttester(address _newAttester, uint256 _newAgentId) external onlyOwner {
@@ -486,6 +507,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         require(contractor != address(0), "Invalid contractor address");
         require(contractor != msg.sender, "Contractor cannot be buyer");
         require(token != address(0), "Invalid token");
+        _requireExternalFeeRecipient(feeCollector);
+        _requireExternalFeeRecipient(partnerAddress);
         /**
          * THE WHITELIST WAS WRITTEN BUT NEVER READ.
          *
@@ -527,6 +550,10 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         require(terms.expiresAt > block.timestamp, "Terms expired");
         require(terms.fundingHash == keccak256(abi.encode(token, amount, deadlineHours, partnerAddress)), "Funding terms changed");
         require(terms.feePolicyHash == _feePolicyHash(), "Fee policy changed: accept new terms");
+        require(terms.independentReviewer != partnerAddress && terms.independentReviewer != feeCollector,
+            "Independent reviewer fee conflict");
+        agreementFeeCollectors[agreementId] = feeCollector;
+        emit AgreementFeeCollectorLocked(agreementId, feeCollector);
         arbitrationCases[agreementId] = ArbitrationCase(
             terms.primaryReviewer, terms.independentReviewer, terms.primaryReviewPeriod, 0, false
         );
@@ -814,14 +841,10 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         IERC20(agr.token).safeTransfer(agr.contractor, agr.netAmount);
 
         // Disburse Sivan Protocol Fee
-        if (protocolFee > 0 && feeCollector != address(0)) {
-            IERC20(agr.token).safeTransfer(feeCollector, protocolFee);
-        }
+        _payFee(agreementId, agr.token, agreementFeeCollectors[agreementId], protocolFee);
 
         // Disburse Developer Partner Affiliate Share
-        if (agr.partnerFeeAmount > 0 && agr.partnerAddress != address(0)) {
-            IERC20(agr.token).safeTransfer(agr.partnerAddress, agr.partnerFeeAmount);
-        }
+        _payFee(agreementId, agr.token, agr.partnerAddress, agr.partnerFeeAmount);
 
         emit AgreementReleased(
             agreementId,
@@ -1066,13 +1089,9 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
             IERC20(agr.token).safeTransfer(agr.contractor, agr.netAmount);
 
-            if (protocolFee > 0 && feeCollector != address(0)) {
-                IERC20(agr.token).safeTransfer(feeCollector, protocolFee);
-            }
+            _payFee(agreementId, agr.token, agreementFeeCollectors[agreementId], protocolFee);
 
-            if (agr.partnerFeeAmount > 0 && agr.partnerAddress != address(0)) {
-                IERC20(agr.token).safeTransfer(agr.partnerAddress, agr.partnerFeeAmount);
-            }
+            _payFee(agreementId, agr.token, agr.partnerAddress, agr.partnerFeeAmount);
 
             emit AgreementReleased(
                 agreementId,

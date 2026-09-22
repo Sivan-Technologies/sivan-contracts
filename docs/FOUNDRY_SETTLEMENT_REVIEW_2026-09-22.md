@@ -1,5 +1,51 @@
 # Foundry and settlement-path review — 2026-09-22
 
+## Follow-up: vault-self fee recipients
+
+Finding 1 is addressed in the local contract code: the constructor and fee-collector
+setter reject the vault itself; funding rejects a vault-self collector or partner
+before transferring tokens; all positive fee disbursements validate their recipients.
+This covers buyer-authorized release, primary/independent rulings and bilateral
+settlements. A rejected payout rolls back balances, agreement state and nonce.
+Fee-free refunds remain available, and an optional zero-address partner remains valid.
+
+Follow-up verification: **138 Hardhat tests passed** and **24 Foundry tests passed**,
+zero failures/skips. The seeded Foundry run below used 2,048 inputs for each of seven
+fuzz tests and 512 runs × 100 calls for each of seven invariants. These are local
+test executions, not live transactions. Compiled Hardhat vault runtime: 20,010 bytes.
+
+The two original stranded-fee probes below have been replaced with rejection
+regressions. `test/SivanAgreementVault.fee-recipients.test.js` covers configuration,
+funding and normal release accounting. `forge-test/FeeRecipientGuards.t.sol` injects
+invalid storage through a **test-only** harness to exercise settlement-time defenses
+and atomic retry; the production contract has no such mutators.
+
+## Follow-up: independent reviewer fee conflicts
+
+Finding 2 is now addressed in local code as well. Funding rejects a partner or
+protocol fee collector matching the independent reviewer. The accepted collector
+is locked in `agreementFeeCollectors` at funding; later global configuration changes
+cannot change that agreement's payout destination. Every positive fee disbursement
+also checks its recipient against that case's independent reviewer. Fee rates and
+fee-free refunds are unchanged. The partner-conflict probe is now a rejection test.
+
+Regression coverage includes old versus new agreement destinations, stale acceptance
+after collector changes, all four paid routes (release, primary ruling, independent
+ruling, bilateral settlement), zero-fee partner conflicts, and atomic rollback/retry
+with invalid state injected only by a test harness. Separate addresses do not prove
+separate beneficial ownership; operational conflict checks remain necessary.
+
+Neither fix recovers previously stranded fees or changes deployed immutable vaults.
+No deployment or live transaction was performed.
+
+Combined verification: **142 Hardhat tests passed**, **25 Foundry tests passed**,
+zero failures/skips. Eight fuzz tests ran 2,048 cases each; seven invariants ran
+512 × 100 handler calls each using the same recorded seed and command below.
+Hardhat-compiled vault runtime is 20,503 bytes. These checks cover the scoped
+fixes; they are not an independent security audit or live deployment validation.
+
+## Original review (historical evidence)
+
 Scope: local review of staging commit `e4851c5`, plus the test-harness changes in
 this working tree. No production Solidity changes, deployment, RPC fork, signing
 with real keys, live funds, commit or push was performed during this review.
@@ -62,8 +108,9 @@ Check subsequent fee-collector changes as part of that fix. Different addresses
 alone still cannot prove independent beneficial ownership; an operational
 conflict-of-interest check remains necessary.
 
-The three `test_review_*` tests intentionally ASSERT these current unsafe outcomes.
-Their passing status confirms findings; it does not mean the findings are fixed.
+At the original review, three `test_review_*` tests intentionally asserted these
+unsafe outcomes. Their passing status confirmed findings, not safety. In the
+follow-ups, all three have become rejection regressions as described above.
 
 ## Paths reviewed
 
