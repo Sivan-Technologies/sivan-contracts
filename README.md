@@ -15,7 +15,8 @@ is not something a Solidity contract can do. See
 Official Links:
 - Website: https://sivantech.online
 - Payment App: https://app.sivantech.online
-- Telegram: https://t.me/Sivan_Ai
+- Telegram Live Payment Bot: https://t.me/SivanAi_bot
+- Telegram Personal Chat: https://t.me/Sivan_Ai
 - Registered Celo Agent: https://8004scan.io/agents/celo/9827 (ERC-8004 Agent #9827)
 - Official Attribution Tag: celo_bafcc2e56bd7
 
