@@ -145,7 +145,7 @@ contract VaultHandler is ArbitrationTestTerms {
         amount = bound(amount, 1, 1_000_000e6);
         hours_ = bound(hours_, 1, 720);
 
-        bytes32 id = keccak256(abi.encode(buyer, contractor, amount, agreementIds.length));
+        bytes32 id = vault.deriveAgreementId(buyer, bytes12(keccak256(abi.encode(buyer, contractor, amount, agreementIds.length))));
         if (known[id]) return;
 
         if (token.balanceOf(buyer) < amount) return;
@@ -535,7 +535,7 @@ contract VaultFuzzTest is ArbitrationTestTerms {
 
     /// The original multi-transaction exploit must fail after escalation.
     function test_timeoutCannotRestoreBuyerRefund() public {
-        bytes32 id = keccak256("arbitration-timeout");
+        bytes32 id = vault.deriveAgreementId(buyer, bytes12(keccak256("arbitration-timeout")));
         _agree(vault, id, buyer, contractor, address(token), 1_000e6, 48);
         vm.prank(buyer);
         vault.deposit(id, contractor, address(token), 1_000e6, 48, address(0));
@@ -591,7 +591,7 @@ contract VaultFuzzTest is ArbitrationTestTerms {
     function testFuzz_depositSplitsExactly(uint256 amount, uint256 hrs) public {
         amount = bound(amount, 1, 1e24);
         hrs = bound(hrs, 1, 720);
-        bytes32 id = keccak256(abi.encode(amount, hrs));
+        bytes32 id = vault.deriveAgreementId(buyer, bytes12(keccak256(abi.encode(amount, hrs))));
 
         _agree(vault, id, buyer, contractor, address(token), amount, hrs);
         vm.prank(buyer);
@@ -606,7 +606,7 @@ contract VaultFuzzTest is ArbitrationTestTerms {
     /** A refund always returns the full deposit, never more, never less. */
     function testFuzz_refundReturnsExactlyTheDeposit(uint256 amount) public {
         amount = bound(amount, 1, 1e24);
-        bytes32 id = keccak256(abi.encode("refund", amount));
+        bytes32 id = vault.deriveAgreementId(buyer, bytes12(keccak256(abi.encode("refund", amount))));
 
         uint256 before = token.balanceOf(buyer);
         _agree(vault, id, buyer, contractor, address(token), amount, 1);

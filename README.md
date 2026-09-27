@@ -51,10 +51,10 @@ sivan-contracts is the core on-chain settlement layer for Sivan AI on Celo Mainn
 
 ## 3. Installation & Testing
 
-Requirements: Node.js v20+, npm
+Requirements: Node.js 22 or 24, npm
 
 1. Install dependencies:
-   npm install
+   npm ci --ignore-scripts
 
 2. Compile contracts:
    npx hardhat compile
@@ -66,6 +66,25 @@ Requirements: Node.js v20+, npm
 ---
 
 ## 4. Deployment
+
+### Immutable multichain roadmap
+
+The current [production control baseline](docs/PRODUCTION_CONTROLS.md) documents
+separate environment profiles, multisig readback checks, two-step administration,
+release evidence and explicit production blockers.
+
+See [EVM implementation and test plan](docs/EVM_MULTICHAIN_IMPLEMENTATION_AND_TEST_PLAN.md)
+for the planned chains, per-chain release gates and immutable V1/V2 policy.
+The first [EVM tooling implementation](docs/EVM_TOOLING.md) adds guarded
+Celo/Base/Arbitrum Sepolia deployment candidates with local integration tests.
+Other profiles remain pending; every mainnet is blocked. No remote multichain
+lifecycle is verified. This roadmap does not authorize deployments or imply
+cross-chain settlement.
+
+See [security remediation and integration changes](docs/SECURITY_REMEDIATION_2026-09-26.md)
+for buyer-bound IDs, required attester control proofs, CI configuration and the
+remaining release gates. New source requires a new immutable deployment, not an
+upgrade of an existing vault.
 
 ### Proposed community arbitration pilot
 
@@ -95,10 +114,10 @@ See the [Sepolia deployment record and next steps](docs/CELO_SEPOLIA_DEPLOYMENT.
 for the deployed testnet vault, confirmed allowlist state, deployment verification
 warning, and remaining checks. Do not redeploy the existing vault to resolve that warning.
 
-The current Sepolia network reads `CELO_SEPOLIA_RPC_URL` and
-`CELO_SEPOLIA_CHAIN_ID` from `.env`; deployment reads `CELO_SEPOLIA_USDC`.
-For an explicitly intended new testnet deployment, use `npm run deploy:sepolia`.
-Legacy network commands below are not the Sepolia deployment command.
+The guarded Sepolia runner uses network-prefixed settings from `.env` and pins
+chain ID 11142220 in the registry. See [EVM tooling](docs/EVM_TOOLING.md) and
+[the blank template](.env.evm.example) before running any deployment command.
+Legacy settings below describe the earlier tooling, not the new runner.
 
 Configure your environment variables in .env (see .env.example):
 - DEPLOYER_PRIVATE_KEY

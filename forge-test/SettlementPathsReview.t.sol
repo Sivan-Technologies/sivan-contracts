@@ -48,7 +48,7 @@ contract SettlementPathsReviewTest is Test {
     address constant FEE = address(0xFEE);
     address constant PARTNER = address(0xAFF);
     address constant INDEPENDENT = address(0xBACC);
-    bytes32 constant ID = keccak256("settlement-review");
+    bytes32 ID;
 
     function setUp() public {
         buyer = vm.addr(BUYER_KEY);
@@ -59,6 +59,7 @@ contract SettlementPathsReviewTest is Test {
     }
 
     function _prepareFunding(uint256 amount, address partner, uint256 period) internal {
+        ID = vault.deriveAgreementId(buyer, bytes12(keccak256("settlement-review")));
         token.mint(buyer, amount);
         vm.prank(buyer);
         vault.proposeArbitrationTerms(ID, contractor, INDEPENDENT, period,

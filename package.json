@@ -5,10 +5,18 @@
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
+    "release:manifest": "node scripts/release-manifest.js",
+    "release:reproducible": "node scripts/check-reproducible-build.js",
     "test": "hardhat test",
-    "deploy:sepolia": "hardhat run scripts/deploy.js --network celoSepolia",
+    "evm:list": "node scripts/evm.js list",
+    "evm:challenge": "node scripts/evm.js challenge",
+    "evm:preflight": "node scripts/evm.js preflight",
+    "evm:deploy": "node scripts/evm.js deploy",
+    "deploy:sepolia": "node scripts/evm.js deploy celoSepolia",
+    "deploy:base:sepolia": "node scripts/evm.js deploy baseSepolia",
+    "deploy:arbitrum:sepolia": "node scripts/evm.js deploy arbitrumSepolia",
     "deploy:alfajores": "hardhat run scripts/deploy.js --network alfajores",
-    "deploy:celo": "hardhat run scripts/deploy.js --network celo"
+    "deploy:celo": "node scripts/evm.js deploy celo"
   },
   "keywords": [
     "celo",
@@ -21,10 +29,25 @@
   ],
   "author": "Samson Micheal <sivantechnology@gmail.com>",
   "license": "MIT",
+  "overrides": {
+    "adm-zip": "0.6.1",
+    "cookie": "0.7.2",
+    "diff": "8.0.3",
+    "lodash": "4.18.1",
+    "serialize-javascript": "7.0.5",
+    "tmp": "0.2.7",
+    "undici": "6.28.0",
+    "uuid": "11.1.1"
+  },
   "devDependencies": {
-    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
-    "@openzeppelin/contracts": "^5.2.0",
-    "dotenv": "^16.4.7",
-    "hardhat": "^2.22.18"
+    "@nomicfoundation/hardhat-ethers": "3.1.3",
+    "@nomicfoundation/hardhat-chai-matchers": "2.1.2",
+    "@nomicfoundation/hardhat-network-helpers": "1.1.2",
+    "@nomicfoundation/hardhat-verify": "2.1.3",
+    "@openzeppelin/contracts": "5.6.1",
+    "ethers": "6.17.0",
+    "chai": "4.5.0",
+    "dotenv": "16.6.1",
+    "hardhat": "2.29.1"
   }
 }

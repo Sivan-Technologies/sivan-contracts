@@ -1,9 +1,10 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { time } = require("@nomicfoundation/hardhat-network-helpers");
 
 describe("Agreed arbitration and independent escalation", function () {
-  const ID = ethers.id("arbitration"), AMOUNT = ethers.parseUnits("100", 6), DAY = 86400;
+  const ID = testAgreementId("arbitration"), AMOUNT = ethers.parseUnits("100", 6), DAY = 86400;
   let vault, token, owner, buyer, contractor, agent, independent, outsider, partnerAddress;
   beforeEach(async () => {
     partnerAddress = ethers.ZeroAddress;
@@ -100,6 +101,7 @@ describe("Agreed arbitration and independent escalation", function () {
     await propose(); await accept();
     await vault.setDeliveryReviewWindow(30 * DAY);
     await vault.transferOwnership(outsider.address);
+    await vault.connect(outsider).acceptOwnership();
     await deposit();
     expect((await vault.getAgreement(ID)).reviewWindowSnapshot).to.equal(7 * DAY);
     expect((await vault.arbitrationCases(ID)).primaryReviewer).to.equal(owner.address);

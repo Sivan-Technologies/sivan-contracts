@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -23,7 +24,7 @@ const { ethers } = require("hardhat");
  */
 describe("SivanAgreementVault · release matrix", function () {
   const U6 = (n) => ethers.parseUnits(n.toString(), 6);
-  const ID = (s) => ethers.id(s);
+  const ID = (s) => testAgreementId(s);
 
   const RELEASE_TYPES = {
     ReleaseAuthorization: [

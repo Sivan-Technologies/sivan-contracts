@@ -5,12 +5,8 @@ const hre = require("hardhat");
  *
  * WHY THE SEEDING MATTERS.
  *
- * The vault starts permissive: with an empty allowlist it accepts any ERC-20,
- * because a fresh deployment with an empty map that refused everything would be
- * unusable. The allowlist only starts being enforced once the owner lists a
- * first token. So a deployment that never seeds is a deployment that accepts
- * arbitrary tokens forever, which is exactly the hole the allowlist exists to
- * close.
+ * The vault starts closed: an empty allowlist refuses deposits. Seeding is
+ * still mandatory for a usable deployment, and its readback must succeed.
  *
  * This script therefore deploys AND lists in one run, and refuses to finish
  * quietly if the listing did not take.
@@ -86,6 +82,9 @@ async function describeToken(address) {
 
 async function main() {
   const net = hre.network.name;
+  if (!["hardhat", "localhost", "celofork", "celosepoliafork"].includes(net)) {
+    throw new Error("Remote deployments must use scripts/evm.js for per-chain preflight and journaling. Mainnet is disabled.");
+  }
   if (!["hardhat", "localhost", "celofork", "celosepoliafork", "celo", "alfajores", "celoSepolia"].includes(net)) {
     throw new Error(`Unsupported deployment network: ${net}`);
   }

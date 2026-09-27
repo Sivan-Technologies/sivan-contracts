@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -16,7 +17,7 @@ const { time } = require("@nomicfoundation/hardhat-network-helpers");
  * off, which is the usual way a lockup fix breaks the product.
  */
 describe("Delivery lockup and dispute resolution", function () {
-  const ID = ethers.id("agreement-lockup");
+  const ID = testAgreementId("agreement-lockup");
   const AMOUNT = ethers.parseUnits("1000", 6);
   const HOURS = 24 * 7;
 
@@ -314,7 +315,7 @@ describe("Delivery lockup and dispute resolution", function () {
     });
 
     it("cannot resolve an agreement that is not disputed", async () => {
-      const ID2 = ethers.id("agreement-2");
+      const ID2 = testAgreementId("agreement-2");
       await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
 
       await expect(
@@ -330,7 +331,7 @@ describe("Delivery lockup and dispute resolution", function () {
     });
 
     it("pays the partner share when one was set", async () => {
-      const ID3 = ethers.id("agreement-partner");
+      const ID3 = testAgreementId("agreement-partner");
       await fundWithTerms(vault.connect(buyer), ID3, contractor.address, await token.getAddress(), AMOUNT, HOURS, partner.address);
       await vault.connect(buyer).raiseDispute(ID3, "contested");
 
@@ -441,7 +442,7 @@ describe("Delivery lockup and dispute resolution", function () {
       const short = await vault.MIN_DELIVERY_REVIEW_WINDOW();
       await vault.connect(owner).setDeliveryReviewWindow(short);
 
-      const ID2 = ethers.id("funded-after-repricing");
+      const ID2 = testAgreementId("funded-after-repricing");
       await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
       await vault.connect(contractor).markDelivered(ID2, "ipfs://x");
       await time.increase(Number(short) + 60);

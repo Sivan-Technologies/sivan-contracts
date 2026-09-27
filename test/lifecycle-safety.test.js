@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers, network } = require("hardhat");
@@ -28,7 +29,7 @@ describe("Lifecycle script safety (local only)", function () {
     await vault.setSupportedToken(await token.getAddress(), true);
     await token.mint(buyer.address, 10000000n);
     await token.connect(buyer).approve(await vault.getAddress(), 10000000n);
-    id = ethers.id("recovery-test");
+    id = testAgreementId("recovery-test");
     await fundWithTerms(vault.connect(buyer), id, contractor.address, await token.getAddress(), 10000000n, 1, ethers.ZeroAddress);
   });
   async function expire() {
@@ -63,6 +64,7 @@ describe("Lifecycle script safety (local only)", function () {
   });
   it("rejects a deployer who no longer owns the vault", async () => {
     await vault.transferOwnership(contractor.address);
+    await vault.connect(contractor).acceptOwnership();
     await rejects(assertActors(vault, owner, buyer, contractor), "not the vault owner");
   });
   it("rejects overlapping lifecycle actors", async () => {

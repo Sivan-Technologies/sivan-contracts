@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { arbitrationConfig, acceptArbitrationTerms } = require("../scripts/helpers/arbitration-terms");
@@ -17,7 +18,7 @@ describe("Lifecycle arbitration configuration (local only)", () => {
   });
   it("runs the actual script acceptance helper and funds only matching terms", async () => {
     const config = await arbitrationConfig(vault, buyer, contractor, { INDEPENDENT_REVIEWER: independent.address, PRIMARY_REVIEW_HOURS: "72" });
-    const id = ethers.id("script-acceptance"), amount = 1000000n, recorded = [];
+    const id = testAgreementId("script-acceptance"), amount = 1000000n, recorded = [];
     await acceptArbitrationTerms(vault, buyer, contractor, id, await token.getAddress(), amount, 1, ethers.ZeroAddress, config,
       async (label, tx) => { await tx.wait(); recorded.push(label); });
     expect(recorded).to.deep.equal(["propose arbitration terms", "accept arbitration terms"]);

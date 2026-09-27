@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -18,7 +19,7 @@ const { anyValue: anyVal } = require("@nomicfoundation/hardhat-chai-matchers/wit
  * F6  a fresh vault accepted any ERC-20 until the allowlist was seeded
  */
 describe("Audit findings: fixes", function () {
-  const ID = ethers.id("audit-fixed");
+  const ID = testAgreementId("audit-fixed");
   const AMOUNT = ethers.parseUnits("1000", 6);
   const HOURS = 24 * 7;
 
@@ -114,7 +115,7 @@ describe("Audit findings: fixes", function () {
 
     it("applies a new window only to agreements funded afterwards", async () => {
       await vault.connect(owner).setDeliveryReviewWindow(30 * 24 * 3600);
-      const ID2 = ethers.id("after-repricing");
+      const ID2 = testAgreementId("after-repricing");
       await fundWithTerms(vault.connect(buyer), ID2, contractor.address, await token.getAddress(), AMOUNT, HOURS, ethers.ZeroAddress);
 
       expect((await vault.getAgreement(ID2)).reviewWindowSnapshot).to.equal(30n * 24n * 3600n);
@@ -224,7 +225,7 @@ describe("Audit findings: fixes", function () {
       await expect(
         fresh
           .connect(buyer)
-          .deposit(ethers.id("early"), contractor.address, await token.getAddress(), AMOUNT, 48, ethers.ZeroAddress)
+          .deposit(testAgreementId("early"), contractor.address, await token.getAddress(), AMOUNT, 48, ethers.ZeroAddress)
       ).to.be.revertedWith("Vault not initialised: no tokens listed");
     });
 
@@ -237,7 +238,7 @@ describe("Audit findings: fixes", function () {
       await junk.connect(buyer).approve(await vault.getAddress(), amt);
 
       await expect(
-        fundWithTerms(vault.connect(buyer), ethers.id("junk"), contractor.address, await junk.getAddress(), amt, 48, ethers.ZeroAddress)
+        fundWithTerms(vault.connect(buyer), testAgreementId("junk"), contractor.address, await junk.getAddress(), amt, 48, ethers.ZeroAddress)
       ).to.be.revertedWith("Token not supported");
     });
   });

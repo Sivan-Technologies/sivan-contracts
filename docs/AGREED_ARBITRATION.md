@@ -36,6 +36,13 @@ or the existing default inspection window.
 
 The existing six-argument `deposit` now fails without bilateral acceptance:
 
+Before proposing terms, derive the ID using `deriveAgreementId(buyer, nonce)`:
+20 bytes of buyer address followed by a unique 12-byte nonce. Use
+`scripts/helpers/agreement-id.js` for JavaScript clients. Persist the ID and
+associate it with chain, vault and both parties; never reuse it for that buyer.
+Raw hash/UUID IDs from earlier deployments are not valid for new funding in this
+source version. Existing deployed vaults and their exit paths remain unchanged.
+
 1. Calculate `fundingHash = keccak256(abi.encode(token, amount, deadlineHours,
    partnerAddress))` using `(address,uint256,uint256,address)`, in token base units.
 2. Buyer calls `proposeArbitrationTerms(agreementId, contractor,
@@ -117,12 +124,12 @@ security review, client integration and verified reviewer operations.
 
 ## Local validation
 
-The Hardhat suite passes 131 tests, including timeout followed by immediate
-refund, exact deadline handover, bilateral term acceptance, stale/revoked terms,
-fee changes, paused resolution, signature replay/domain checks and split-payment
-conservation. Lifecycle helper configuration and acceptance are tested locally.
-On 2026-09-22 the Foundry suite was run and expanded: 21 tests passed, including
-seven invariants at 512 runs × 100 calls and six fuzz tests at 2,048 inputs each.
-Three deliberately passing reproduction tests confirm two unresolved recipient/
-reviewer-conflict findings. See [the full review and reproduction commands](FOUNDRY_SETTLEMENT_REVIEW_2026-09-22.md).
+At commit `ed8714c`, 142 Hardhat tests and 25 Foundry tests passed locally,
+including timeout followed by immediate refund, deadline handover, bilateral
+acceptance, fee-recipient snapshots, reviewer conflicts, replay protection and
+split-payment conservation. Eight fuzz tests ran 2,048 cases each; seven invariants
+ran 512 runs × 100 calls each. The original recipient/conflict reproductions are
+now rejection regressions. See [the full review and reproduction commands](FOUNDRY_SETTLEMENT_REVIEW_2026-09-22.md).
+For planned networks and evidence gates, see the
+[EVM implementation and test plan](EVM_MULTICHAIN_IMPLEMENTATION_AND_TEST_PLAN.md).
 This is not production clearance, remote end-to-end validation or an independent audit.

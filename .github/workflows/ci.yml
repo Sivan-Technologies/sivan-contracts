@@ -1,5 +1,8 @@
 name: Contracts CI
 
+permissions:
+  contents: read
+
 # Runs on every push and PR. A vault holding customer money should not be able
 # to regress silently between a green local run and a merge.
 on:
@@ -19,45 +22,52 @@ jobs:
     name: Hardhat unit tests
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       # Compile separately so a build break is reported as a build break
       # rather than as 34 mysterious test failures.
       - name: Compile
         run: npx hardhat compile
 
+      - name: Repeatable build check
+        run: npm run release:reproducible
+
       - name: Test
         run: npx hardhat test
+
+      - name: Dependency advisory gate
+        # Low legacy elliptic advisory remains documented, not suppressed.
+        run: npm audit --audit-level=moderate
 
   foundry:
     name: Fuzz and invariants
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       # OpenZeppelin comes from npm, and foundry.toml remaps @openzeppelin/ to
       # node_modules. One dependency tree for both toolchains rather than two
       # that can drift apart.
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
-      - uses: foundry-rs/foundry-toolchain@v1
+      - uses: foundry-rs/foundry-toolchain@908c540300062bd5a7e473851cdb4282204cee09 # v1
         with:
-          version: stable
+          version: v1.7.1
 
       - name: Install forge-std
-        run: forge install foundry-rs/forge-std --no-git
+        run: forge install foundry-rs/forge-std@77041d2ce690e692d6e03cc812b57d1ddaa4d505 --no-git
 
       - name: Fuzz and invariant suite
         run: forge test -vv
@@ -66,60 +76,63 @@ jobs:
     name: Static analysis
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
-      - uses: crytic/slither-action@v0.4.0
+      - uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
         id: slither
         with:
           target: "."
-          slither-args: --filter-paths "node_modules|contracts/test|lib"
-          # Fail the build on High or Medium only.
-          #
-          # The current Medium is divide-before-multiply on the partner fee
-          # split. Measured across every combination of amount, tier and share,
-          # the divergence from a single-division calculation is 0 wei, and any
-          # remainder stays in protocolFee which is computed as the remainder.
-          # It is triaged and accepted, so it lives in slither.db.json rather
-          # than being silenced by lowering the threshold.
+          node-version: "22"
+          solc-version: "0.8.24"
+          slither-version: "0.11.5"
+          slither-args: --compile-force-framework hardhat --filter-paths "node_modules|contracts/test|lib"
+          # Fail closed on medium/high findings. slither.db.json records one
+          # exact-ID enum-equality false positive; no detector-wide suppression.
           fail-on: medium
 
   deploy-script:
     name: Deploy script against a Celo fork
     runs-on: ubuntu-latest
+    env:
+      CELO_FORK_RPC_URL: ${{ vars.CELO_FORK_RPC_URL }}
+      CELO_FORK_SOURCE_RPC_URL: ${{ secrets.CELO_FORK_SOURCE_RPC_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
-      - run: npm ci
+      - run: npm ci --ignore-scripts
 
       # THE POINT OF THIS JOB.
       #
-      # The vault starts permissive: an empty allowlist accepts any ERC-20, and
-      # enforcement only begins once the owner lists a first token. That makes
-      # the deploy script load bearing, because a deployment that fails to seed
-      # leaves a vault that accepts arbitrary tokens forever.
+      # The vault starts closed. A deployment that fails to seed remains
+      # unusable; verify the real token readbacks and explicit seed operation.
       #
       # Unit tests cannot catch a broken seed. Running the real script against
       # a fork of Celo mainnet exercises it against the actual USDC, USDm and
       # USDT contracts, and the script asserts tokenAllowlistEnforced() is true
       # afterwards. If a token address rots or the seeding breaks, this job
-      # goes red rather than a production deployment going quietly permissive.
+      # goes red rather than leaving an unusable deployment unnoticed.
       - name: Start a Celo mainnet fork
         run: |
-          npx hardhat node --fork https://forno.celo.org > /tmp/fork.log 2>&1 &
+          test -n "$CELO_FORK_RPC_URL" && test -n "$CELO_FORK_SOURCE_RPC_URL" || {
+            echo "Configure CELO_FORK_RPC_URL (local runner) and CELO_FORK_SOURCE_RPC_URL (read-only fork source)."
+            exit 1
+          }
+          node scripts/check-local-fork.js
+          npx hardhat node --hostname 127.0.0.1 --fork "$CELO_FORK_SOURCE_RPC_URL" > /tmp/fork.log 2>&1 &
           for i in $(seq 1 60); do
-            if curl -s -m 2 -X POST http://127.0.0.1:8545 \
+            if curl -s -m 2 -X POST "$CELO_FORK_RPC_URL" \
                  -H 'Content-Type: application/json' \
                  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}' \
                  | grep -q result; then
@@ -127,7 +140,7 @@ jobs:
             fi
             sleep 1
           done
-          echo "fork did not start"; tail -30 /tmp/fork.log; exit 1
+          echo "fork did not start; RPC logs withheld to protect endpoint credentials"; exit 1
 
       - name: Deploy and seed the allowlist
         env:
@@ -163,7 +176,7 @@ jobs:
     name: USDm naming guard
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Portable across every Sivan repository. Copy scripts/check-usdm-naming.sh
       # into any repo and add this job; the rules live in the script, not here,
       # so they stay identical everywhere rather than drifting per repo.

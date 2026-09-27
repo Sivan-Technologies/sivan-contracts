@@ -93,6 +93,12 @@ async function main() {
 
   const vault = await hre.ethers.getContractAt("SivanAgreementVault", vaultAddress);
   const signers = await hre.ethers.getSigners();
+  // Hardhat no longer loads a shared key into every network configuration.
+  const testDeployerKey = (process.env.CELO_SEPOLIA_DEPLOYER_PRIVATE_KEY || "").trim();
+  if (testDeployerKey) {
+    try { signers.unshift(new hre.ethers.Wallet(testDeployerKey.startsWith("0x") ? testDeployerKey : `0x${testDeployerKey}`, provider)); }
+    catch { throw new Error("Invalid CELO_SEPOLIA_DEPLOYER_PRIVATE_KEY (value withheld)"); }
+  }
   function roleSigner(variable, fallback) {
     const key = (process.env[variable] || "").trim();
     if (!key) return fallback;
@@ -222,7 +228,7 @@ async function main() {
 
   const stamp = Date.now();
   const id = (n) => {
-    const value = hre.ethers.id(`sivan-live-${stamp}-${n}`);
+    const value = require("./helpers/agreement-id").agreementId(buyer.address);
     journal.agreements.push({ id: value, buyer: buyer.address, token: usdcAddress, scenario: n });
     saveProgress();
     console.log(`    agreementId: ${value}`);

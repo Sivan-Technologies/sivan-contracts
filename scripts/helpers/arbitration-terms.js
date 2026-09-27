@@ -12,6 +12,12 @@ async function arbitrationConfig(vault, buyer, contractor, env = process.env) {
     throw new Error("Independent reviewer must be distinct from parties, primary reviewer, agent, fee collector and vault.");
   // An older deployed vault must fail preflight before approvals or deposits.
   await vault.arbitrationTermsHash(await buyer.getAddress(), ethers.ZeroHash);
+  // New purchases require the buyer-bound-ID vault. Existing refund recovery
+  // does not run this capability check and remains compatible with old vaults.
+  const nonce = "0x000000000000000000000001";
+  if (await vault.deriveAgreementId(await buyer.getAddress(), nonce) !== require("./agreement-id").agreementId(await buyer.getAddress(), nonce)) {
+    throw new Error("Vault does not support buyer-bound agreement IDs");
+  }
   return { independentReviewer, primaryReviewPeriod: hours * 3600 };
 }
 

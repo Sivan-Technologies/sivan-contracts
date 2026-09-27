@@ -25,13 +25,14 @@ contract FeeRecipientGuardsTest is Test {
     address constant FEE = address(0xFEE);
     address constant PARTNER = address(0xAFF);
     address constant INDEPENDENT = address(0xBACC);
-    bytes32 constant ID = keccak256("fee-guards");
+    bytes32 ID;
 
     function setUp() public {
         buyer = vm.addr(BUYER_KEY);
         contractor = vm.addr(CONTRACTOR_KEY);
         token = new MockERC20("USDC", "USDC", 6);
         vault = new FeeRecipientGuardHarness(FEE, address(this));
+        ID = vault.deriveAgreementId(buyer, bytes12(keccak256("fee-guards")));
         vault.setSupportedToken(address(token), true);
         token.mint(buyer, AMOUNT);
         vm.prank(buyer);

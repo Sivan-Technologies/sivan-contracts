@@ -10,6 +10,8 @@ pragma solidity ^0.8.24;
  * @dev Enables autonomous milestone locking, dual-attestation release, dynamic fees, and partner splits.
  */
 interface ISivanAgreementVault {
+    /// IDs contain the buyer's 20-byte address and a unique 12-byte nonce.
+    function deriveAgreementId(address buyer, bytes12 nonce) external pure returns (bytes32);
     enum AgreementState {
         Uninitialized,
         Funded,

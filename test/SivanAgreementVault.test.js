@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -72,7 +73,7 @@ describe("SivanAgreementVault", function () {
 
   describe("Core Deposit Lifecycle", function () {
     it("should lock funds non-custodially on deposit", async function () {
-      const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_001"));
+      const agreementId = testAgreementId("deal_001");
       const amount = ethers.parseUnits("50", 6); // 50 USDC (realistic testing amount)
       const deadlineHours = 24;
 
@@ -102,7 +103,7 @@ describe("SivanAgreementVault", function () {
 
   describe("Delivery & Settlement Release", function () {
     it("should allow contractor to mark milestone as delivered", async function () {
-      const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_002"));
+      const agreementId = testAgreementId("deal_002");
       const amount = ethers.parseUnits("20", 6);
 
       await fundWithTerms(vault.connect(buyer),
@@ -126,7 +127,7 @@ describe("SivanAgreementVault", function () {
     });
 
     it("should release payment with protocol fee and developer partner revenue share", async function () {
-      const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_003"));
+      const agreementId = testAgreementId("deal_003");
       const amount = ethers.parseUnits("100", 6); // Tier 2: 0.75% fee = 0.75 USDC
 
       await fundWithTerms(vault.connect(buyer),
@@ -191,7 +192,7 @@ describe("SivanAgreementVault", function () {
 
   describe("Safety & Timeout Auto-Refund", function () {
     it("should allow buyer to autonomously reclaim 100% funds after deadline expires", async function () {
-      const agreementId = ethers.keccak256(ethers.toUtf8Bytes("deal_004"));
+      const agreementId = testAgreementId("deal_004");
       const amount = ethers.parseUnits("30", 6);
       const deadlineHours = 12;
 

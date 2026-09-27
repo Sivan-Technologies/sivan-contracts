@@ -1,10 +1,11 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
 const { fund } = require("./helpers/fund");
 
 describe("Vault-self fee recipient guards", () => {
   let vault, token, owner, buyer, contractor, agent, collector, partner;
-  const ID = ethers.id("fee-recipient-guard"), amount = 100000000n;
+  const ID = testAgreementId("fee-recipient-guard"), amount = 100000000n;
   beforeEach(async () => {
     [owner, buyer, contractor, agent, collector, partner] = await ethers.getSigners();
     token = await (await ethers.getContractFactory("MockERC20")).deploy("USDC", "USDC", 6);
@@ -66,7 +67,7 @@ describe("Vault-self fee recipient guards", () => {
   it("locks the accepted collector while new agreements use the new setting", async () => {
     await fund(vault.connect(buyer), ID, contractor.address, await token.getAddress(), amount, 24, ethers.ZeroAddress);
     await vault.setFeeCollector(partner.address);
-    const second = ethers.id("second collector");
+    const second = testAgreementId("second collector");
     await token.mint(buyer.address, amount);
     await token.connect(buyer).approve(await vault.getAddress(), amount);
     await fund(vault.connect(buyer), second, contractor.address, await token.getAddress(), amount, 24, ethers.ZeroAddress);

@@ -243,8 +243,7 @@ async function main() {
     ],
   };
 
-  const stamp = Date.now();
-  const id = (n) => hre.ethers.id(`sivan-lifecycle-${stamp}-${n}`);
+  const id = () => require("./helpers/agreement-id").agreementId(buyer.address);
 
   const warp = async (seconds) => {
     if (!isFork) throw new Error("Cannot warp time on a live network.");

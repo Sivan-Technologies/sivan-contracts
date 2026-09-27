@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/access/Ownable2Step.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import "@openzeppelin/contracts/utils/cryptography/SignatureChecker.sol";
@@ -35,7 +35,7 @@ import "./interfaces/ISivanAgreementVault.sol";
  * @dev Fully non-custodial milestone vault supporting dynamic fees, developer partner splits,
  *      and dual cryptographic attestation (Buyer + Sivan AI Registered Agent #9827).
  */
-contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable, Ownable, EIP712 {
+contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable, Ownable2Step, EIP712 {
     using SafeERC20 for IERC20;
 
     // ─── Constants & Fee Policy ──────────────────────────────────────────────
@@ -191,6 +191,17 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     event ArbitrationReviewStarted(bytes32 indexed agreementId, uint256 primaryDeadline);
     event ArbitrationEscalated(bytes32 indexed agreementId, address indexed independentReviewer);
 
+    /// Buyer namespace (20 bytes) plus a buyer-chosen unique nonce (12 bytes).
+    /// Chain and vault binding are enforced separately by the signature domain.
+    function deriveAgreementId(address buyer, bytes12 nonce) public pure override returns (bytes32) {
+        require(buyer != address(0), "Invalid buyer");
+        return bytes32(abi.encodePacked(buyer, nonce));
+    }
+
+    function _requireBuyerAgreementId(bytes32 agreementId, address buyer) internal pure {
+        require(address(bytes20(agreementId)) == buyer, "Agreement ID must belong to buyer");
+    }
+
     /// @notice Buyer proposes immutable funding and arbitration terms before any deposit.
     /// @dev fundingHash = keccak256(abi.encode(token, amount, deadlineHours, partnerAddress)).
     /// No automatic outcome exists if the independent reviewer does not act.
@@ -203,6 +214,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         uint256 expiresAt
     ) external override {
         require(agreementId != bytes32(0), "Invalid agreement id");
+        _requireBuyerAgreementId(agreementId, msg.sender);
         require(agreements[agreementId].state == AgreementState.Uninitialized, "Agreement already exists");
         require(contractor != address(0) && contractor != msg.sender, "Invalid contractor");
         require(owner() != msg.sender && owner() != contractor, "Primary reviewer conflicts with party");
@@ -544,6 +556,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Uninitialized, "Agreement already exists");
+
+        _requireBuyerAgreementId(agreementId, msg.sender);
 
         ArbitrationTerms memory terms = proposedArbitrationTerms[msg.sender][agreementId];
         require(terms.contractorAccepted && terms.contractor == contractor, "Arbitration terms not accepted");

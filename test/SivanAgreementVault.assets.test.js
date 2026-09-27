@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -18,7 +19,7 @@ const { ethers } = require("hardhat");
  *     product required redeploying the vault that holds customer money.
  */
 describe("SivanAgreementVault · assets and dynamic fees", function () {
-  const ID = (s) => ethers.id(s);
+  const ID = (s) => testAgreementId(s);
   const U6 = (n) => ethers.parseUnits(n.toString(), 6);
 
   async function agentSig(vault, signer, agreementId, agentId, proof, ts) {

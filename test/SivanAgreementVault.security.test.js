@@ -1,3 +1,4 @@
+const { testAgreementId } = require("./helpers/agreement-id");
 const { fund: fundWithTerms } = require("./helpers/fund");
 const { expect } = require("chai");
 const { ethers } = require("hardhat");
@@ -15,7 +16,7 @@ const { ethers } = require("hardhat");
  */
 describe("SivanAgreementVault · security", function () {
   const USDC = (n) => ethers.parseUnits(n.toString(), 6);
-  const ID = (s) => ethers.id(s);
+  const ID = (s) => testAgreementId(s);
 
 
   /**
