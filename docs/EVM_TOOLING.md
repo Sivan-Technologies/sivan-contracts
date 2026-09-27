@@ -160,3 +160,15 @@ Official references used for the first candidate network identifiers:
 - [Arbitrum network information](https://docs.arbitrum.io/arbitrum-bridge/quickstart)
 - Celo Sepolia: existing repository chain guard and read-only RPC evidence in
   [the implementation plan](EVM_MULTICHAIN_IMPLEMENTATION_AND_TEST_PLAN.md).
+# Shared treasury configuration
+
+`SIVAN_FEE_COLLECTOR` provides the fee recipient default within the selected
+environment profile. A nonempty `<NETWORK>_FEE_COLLECTOR` takes precedence;
+blank overrides inherit the shared address. Invalid explicit overrides fail
+validation rather than silently falling back. Missing, zero and conflicting
+addresses remain rejected.
+
+Use separate testnet and production profiles and treasury addresses. This fallback
+does not apply to admin, attester, signing keys, RPCs or multisig policies.
+Multisig deployments, owners, threshold and reviewed code hashes are still checked
+on each chain. Sharing an address does not consolidate balances across chains.

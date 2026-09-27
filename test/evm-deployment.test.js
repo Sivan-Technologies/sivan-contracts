@@ -40,10 +40,27 @@ describe("EVM deployment safeguards (local EVM only)", function () {
     expect(result.baseSepolia.accounts).to.deep.equal([]);
     expect(result.baseSepolia.chainId).to.equal(84532);
   });
-  it("requires network-specific settings, not global role fallbacks", () => {
-    expect(() => configuration(network, { SIVAN_FEE_COLLECTOR: collector.address })).to.throw("Configure BASE_SEPOLIA_FEE_COLLECTOR");
+  it("keeps non-treasury roles network-specific", () => {
+    expect(() => configuration(network, { SIVAN_FEE_COLLECTOR: collector.address })).to.throw("Configure BASE_SEPOLIA_AGENT_ATTESTER");
     expect(() => configuration(network, { ...env, BASE_SEPOLIA_AGENT_ID: "0" })).to.throw("Invalid agent ID");
     expect(() => configuration(network, { ...env, BASE_SEPOLIA_AGENT_ATTESTER: collector.address })).to.throw("separate");
+  });
+  it("uses the shared collector when a network override is absent or blank", () => {
+    for (const value of [undefined, "", "  "]) {
+      expect(configuration(network, {...env, BASE_SEPOLIA_FEE_COLLECTOR: value,
+        SIVAN_FEE_COLLECTOR: ` ${collector.address} `}).feeCollector).to.equal(collector.address);
+    }
+  });
+  it("prefers an explicit override and never hides an invalid override", () => {
+    expect(configuration(network, {...env, SIVAN_FEE_COLLECTOR: buyer.address}).feeCollector).to.equal(collector.address);
+    expect(() => configuration(network, {...env, BASE_SEPOLIA_FEE_COLLECTOR: "invalid",
+      SIVAN_FEE_COLLECTOR: collector.address})).to.throw("Invalid FEE_COLLECTOR");
+  });
+  it("rejects missing, invalid, zero and conflicting shared collectors", () => {
+    for (const value of [undefined, "", "invalid", ethers.ZeroAddress, agent.address, owner.address]) {
+      expect(() => configuration(network, {...env, BASE_SEPOLIA_FEE_COLLECTOR: "",
+        SIVAN_FEE_COLLECTOR: value})).to.throw();
+    }
   });
   it("rejects empty, duplicate and malformed token lists", () => {
     for (const value of ["[]", "{}", "bad-json", JSON.stringify([...config.tokens, ...config.tokens]), JSON.stringify([{...config.tokens[0], decimals: 19}])]) {
@@ -73,6 +90,8 @@ describe("EVM deployment safeguards (local EVM only)", function () {
       // Local chain override is deliberate: this is NOT a remote testnet result.
       const profile = { ...getNetwork(name), chainId: 31337 };
       const specific = Object.fromEntries(Object.entries(env).map(([k,v]) => [k.replace("BASE_SEPOLIA", profile.prefix), v]));
+      delete specific[profile.prefix + "_FEE_COLLECTOR"];
+      specific.SIVAN_FEE_COLLECTOR = collector.address;
       const cfg = configuration(profile, specific);
       await signProof(profile, cfg, owner.address, artifact, agent);
       await check({ network: profile, config: cfg });

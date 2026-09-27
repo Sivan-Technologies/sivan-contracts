@@ -85,17 +85,24 @@ jobs:
 
       - run: npm ci --ignore-scripts
 
-      - uses: crytic/slither-action@f197989dea5b53e986d0f88c60a034ddd77ec9a8 # v0.4.0
-        id: slither
-        with:
-          target: "."
-          node-version: "22"
-          solc-version: "0.8.24"
-          slither-version: "0.11.5"
-          slither-args: --compile-force-framework hardhat --filter-paths "node_modules|contracts/test|lib"
-          # Fail closed on medium/high findings. slither.db.json records one
-          # exact-ID enum-equality false positive; no detector-wide suppression.
-          fail-on: medium
+      # The old Docker action ships Python <3.10, which cannot install 0.11.5.
+      # Use the runner's Python in an isolated environment and Hardhat's pinned solc.
+      - name: Install static analysis tooling
+        run: |
+          python3 -c 'import sys; assert sys.version_info >= (3, 10), "Slither requires Python >=3.10"'
+          python3 -m venv "$RUNNER_TEMP/slither"
+          "$RUNNER_TEMP/slither/bin/python" -m pip install slither-analyzer==0.11.5
+
+      - name: Compile for static analysis
+        run: npx hardhat compile
+
+      - name: Static analysis gate
+        # Preserve the medium/high gate and exact-ID triage, not broad suppression.
+        run: |
+          export VIRTUAL_ENV="$RUNNER_TEMP/slither"
+          "$RUNNER_TEMP/slither/bin/slither" . \
+            --compile-force-framework hardhat --hardhat-ignore-compile \
+            --filter-paths 'node_modules|contracts/test|lib' --fail-medium
 
   deploy-script:
     name: Deploy script against a Celo fork
@@ -125,8 +132,12 @@ jobs:
       # goes red rather than leaving an unusable deployment unnoticed.
       - name: Start a Celo mainnet fork
         run: |
-          test -n "$CELO_FORK_RPC_URL" && test -n "$CELO_FORK_SOURCE_RPC_URL" || {
-            echo "Configure CELO_FORK_RPC_URL (local runner) and CELO_FORK_SOURCE_RPC_URL (read-only fork source)."
+          test -n "$CELO_FORK_RPC_URL" || {
+            echo "::error::Set repository Actions variable CELO_FORK_RPC_URL to http://127.0.0.1:8545 (local runner only)."
+            exit 1
+          }
+          test -n "$CELO_FORK_SOURCE_RPC_URL" || {
+            echo "::error::Set repository Actions secret CELO_FORK_SOURCE_RPC_URL to your Celo mainnet read-only fork-capable RPC endpoint."
             exit 1
           }
           node scripts/check-local-fork.js

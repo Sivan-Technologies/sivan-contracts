@@ -7,7 +7,9 @@ function configuration(network, env) {
   if (env.EVM_PROFILE === "production") throw new DeploymentError("Production deployment remains disabled pending independent review and protected signer integration");
   assertDeployable(network);
   const read = suffix => {
-    const value = (env[network.prefix + "_" + suffix] || "").trim();
+    const override = (env[network.prefix + "_" + suffix] || "").trim();
+    // Only treasury addresses may be shared; signing identities and policy stay chain-specific.
+    const value = override || (suffix === "FEE_COLLECTOR" ? (env.SIVAN_FEE_COLLECTOR || "").trim() : "");
     if (!value) throw new DeploymentError(`Configure ${network.prefix}_${suffix}`);
     return value;
   };
