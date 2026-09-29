@@ -24,7 +24,10 @@ contract MilestoneSequenceHandler is Test {
     function dispute(uint8 index,bool buyer) external {
         vm.prank(buyer?BUYER:CONTRACTOR); vault.disputeMilestone(id,index%3);
     }
-    function overdue(uint8 index) external { vault.requestOverdueReview(id,index%3); }
+    function overdue(uint8 index) external {
+        vm.prank(index % 2 == 0 ? BUYER : CONTRACTOR);
+        vault.requestOverdueReview(id,index%3);
+    }
     function escalate(uint8 index) external { vault.escalateMilestone(id,index%3); }
     function resolve(uint8 index,uint96 refund_,bool independent) external {
         uint256 i=index%3;

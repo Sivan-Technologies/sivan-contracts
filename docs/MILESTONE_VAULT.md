@@ -52,7 +52,10 @@ these exact allocations. No fees leave the vault at funding.
 - Undelivered milestones can be fully refunded by the buyer after the deadline plus
   a two-day dispute filing grace. The grace ends before unilateral refund starts.
 - Delivered milestones never become unilaterally refundable merely due to timeout.
-  Anyone can request human review after the agreed delivery review window expires.
+  Only the project's buyer or contractor can request human review after the agreed
+  delivery review window expires. Unrelated callers and control-role addresses
+  cannot initiate overdue review. Permissionless escalation applies only after a
+  dispute has already been opened and its primary-review deadline has expired.
 - Either party may dispute active work; undelivered disputes must be filed within
   the deadline plus grace. A disputed milestone cannot be ordinarily released/refunded.
 - Primary review lasts an agreed 24 hours, 72 hours or seven days from dispute.

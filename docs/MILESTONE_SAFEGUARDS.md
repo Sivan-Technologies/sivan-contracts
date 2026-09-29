@@ -18,6 +18,13 @@ dispute, overdue-review, escalation, reviewer-recovery and mutual settlement pat
 remain callable subject to their normal authorization and timing. A pause cannot
 reverse a transaction already funded or prevent every settlement exploit.
 
+Overdue-review initiation is party-only: `requestOverdueReview` requires the
+project buyer or contractor. It remains available while funding is paused and
+only after the delivery-review deadline. An unrelated keeper cannot initiate
+arbitration, but anyone may still call `escalateMilestone` for an already-open
+dispute whose primary-review deadline has passed. Existing immutable deployments
+require a new version to acquire this authorization change.
+
 The runner requires reviewed Safe-compatible 2-of-3 funding-admin readbacks in
 all modes, including testnet_eoa. The contract itself accepts an address; it does
 not claim to identify Safe implementations or enforce their future thresholds.

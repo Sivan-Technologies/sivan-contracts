@@ -255,9 +255,10 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
         _dispute(id, index, p, m);
     }
 
-    /// @notice Anyone can progress an unanswered delivery into human review.
+    /// @notice Only a project party may move an unanswered delivery into review.
     function requestOverdueReview(bytes32 id, uint256 index) external {
         (Project storage p, Milestone storage m) = _get(id, index);
+        require(msg.sender == p.buyer || msg.sender == p.contractor, "Only parties");
         require(m.state == State.Delivered && block.timestamp > m.deliveredAt + p.reviewWindow, "Review not overdue");
         _dispute(id, index, p, m);
     }

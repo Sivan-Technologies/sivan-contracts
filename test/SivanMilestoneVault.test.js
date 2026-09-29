@@ -92,7 +92,7 @@ describe("SivanMilestoneVault (isolated local milestone escrow)", function () {
   it("never lets a buyer refund delivered or disputed work after a timeout", async () => {
     const c=await loadFixture(funded); await c.deliver(0); await time.increase(10*day);
     await expect(c.vault.refundUndelivered(c.id,0)).revertedWith("Not undelivered");
-    await c.vault.connect(c.stranger).requestOverdueReview(c.id,0);
+    await c.vault.connect(c.contractor).requestOverdueReview(c.id,0);
     await time.increase(day+1); await c.vault.escalateMilestone(c.id,0); await time.increase(365*day);
     await expect(c.vault.refundUndelivered(c.id,0)).revertedWith("Not undelivered");
     expect((await c.vault.milestones(c.id,0)).state).eq(3);
