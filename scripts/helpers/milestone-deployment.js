@@ -1,7 +1,7 @@
 const { ethers } = require("ethers");
 const { assertDeployable, DeploymentError } = require("../../config/evm-networks.cjs");
 const { walletPolicy, checkWallet } = require("./control-wallets");
-const ACK = "immutable-no-pause-no-role-rotation";
+const ACK = "funding-pause-bilateral-reviewer-recovery";
 const FQN = "contracts/SivanMilestoneVault.sol:SivanMilestoneVault";
 
 function configuration(network, env) {
@@ -19,6 +19,8 @@ function configuration(network, env) {
   const feeCollector = addr((env[`${network.prefix}_MILESTONE_FEE_COLLECTOR`] || "").trim() ||
     (env[`${network.prefix}_FEE_COLLECTOR`] || "").trim() || (env.SIVAN_FEE_COLLECTOR || "").trim());
   const primaryReviewer = addr(read("PRIMARY_REVIEWER"));
+  const fundingAdmin = addr(read("FUNDING_ADMIN"));
+  if (new Set([feeCollector,primaryReviewer,fundingAdmin]).size !== 3) throw new DeploymentError("Milestone control roles must be separate");
   if (feeCollector === primaryReviewer) throw new DeploymentError("Treasury and reviewer must be separate");
   const rate = read("FEE_BPS");
   if (!/^(0|[1-9][0-9]*)$/.test(rate) || Number(rate) > 300) throw new DeploymentError("Fee must be 0..300 integer bps");
@@ -38,7 +40,7 @@ function configuration(network, env) {
     if (seen.has(address)) throw new DeploymentError("Duplicate milestone token");
     seen.add(address); return {address, symbol:t.symbol, decimals:t.decimals};
   });
-  return {feeCollector, primaryReviewer, feeBps:Number(rate), version, riskAck:ACK, controlMode, tokens,
+  return {feeCollector, primaryReviewer, fundingAdmin, adminPolicy:walletPolicy(read,"ADMIN"), feeBps:Number(rate), version, riskAck:ACK, controlMode, tokens,
     treasuryPolicy:controlMode === "multisig" ? walletPolicy(read,"TREASURY") : null,
     reviewerPolicy:controlMode === "multisig" ? walletPolicy(read,"REVIEWER") : null,
     proofExpiry:read("REVIEWER_PROOF_EXPIRY"), proof:env[`${network.prefix}_MILESTONE_REVIEWER_PROOF_SIGNATURE`]};
@@ -46,7 +48,7 @@ function configuration(network, env) {
 function challenge({network,config,deployer,artifact}) {
   return JSON.stringify({purpose:"Sivan milestone deployment reviewer consent v1",chainId:String(network.chainId),
     deployer:ethers.getAddress(deployer), version:config.version,feeCollector:config.feeCollector,
-    primaryReviewer:config.primaryReviewer,feeBps:config.feeBps,tokens:config.tokens,controlMode:config.controlMode,
+    primaryReviewer:config.primaryReviewer,fundingAdmin:config.fundingAdmin,adminPolicy:config.adminPolicy,feeBps:config.feeBps,tokens:config.tokens,controlMode:config.controlMode,
     treasuryPolicy:config.treasuryPolicy,reviewerPolicy:config.reviewerPolicy,riskAck:config.riskAck,
     creationBytecodeHash:ethers.keccak256(artifact.bytecode),expiry:String(config.proofExpiry)});
 }
@@ -69,9 +71,10 @@ async function preflight({network,config,provider,deployer,artifact,build}) {
   if(artifact.contractName!=="SivanMilestoneVault" || artifact.sourceName!=="contracts/SivanMilestoneVault.sol") throw new DeploymentError("Wrong milestone artifact");
   if(build.solcVersion!=="0.8.24" || build.input.settings.evmVersion!==network.evmVersion) throw new DeploymentError("Milestone compiler target mismatch");
   if((artifact.deployedBytecode.length-2)/2>24576) throw new DeploymentError("Milestone runtime exceeds size limit");
-  if(!ethers.isAddress(deployer) || deployer===ethers.ZeroAddress || new Set([deployer,config.feeCollector,config.primaryReviewer].map(a=>a.toLowerCase())).size!==3)
+  if(!ethers.isAddress(deployer) || deployer===ethers.ZeroAddress || new Set([deployer,config.feeCollector,config.primaryReviewer,config.fundingAdmin].map(a=>a.toLowerCase())).size!==4)
     throw new DeploymentError("Milestone deployer, treasury and reviewer must be separate");
   const block=await provider.getBlockNumber();
+  const fundingAdmin=await checkWallet(provider,config.fundingAdmin,config.adminPolicy,[deployer,config.feeCollector,config.primaryReviewer],block);
   for(const t of config.tokens) {
     if(await provider.getCode(t.address,block)==="0x") throw new DeploymentError("Milestone token has no code");
     const token=new ethers.Contract(t.address,["function symbol() view returns(string)","function decimals() view returns(uint8)"],provider);
@@ -90,9 +93,9 @@ async function preflight({network,config,provider,deployer,artifact,build}) {
   if(!price || price<=0n) throw new DeploymentError("Milestone gas pricing unavailable");
   const reserve=gas*price*2n;
   if(await provider.getBalance(deployer)<reserve) throw new DeploymentError("Insufficient milestone deployment gas reserve");
-  return {block,gas:String(gas),reserve:String(reserve),controls};
+  return {block,gas:String(gas),reserve:String(reserve),controls,fundingAdmin};
 }
-function constructorArgs(c) {return [c.feeCollector,c.primaryReviewer,c.feeBps,c.tokens.map(t=>t.address)];}
+function constructorArgs(c) {return [c.feeCollector,c.primaryReviewer,c.feeBps,c.tokens.map(t=>t.address),c.fundingAdmin];}
 async function deploy({network,config,signer,artifact,build,record,save}) {
   if(record.phase!=="preflight") throw new DeploymentError("Inspect partial milestone deployment; do not retry blindly");
   const provider=signer.provider,deployer=await signer.getAddress();
@@ -100,7 +103,7 @@ async function deploy({network,config,signer,artifact,build,record,save}) {
   record.phase="deployment-broadcast-intent";
   record.nonce=await signer.getNonce("pending");
   record.vault=ethers.getCreateAddress({from:deployer,nonce:record.nonce});
-  if([config.feeCollector,config.primaryReviewer,...config.tokens.map(t=>t.address)].some(a=>a.toLowerCase()===record.vault.toLowerCase())) throw new DeploymentError("Predicted vault role/token conflict");
+  if([config.feeCollector,config.primaryReviewer,config.fundingAdmin,...config.tokens.map(t=>t.address)].some(a=>a.toLowerCase()===record.vault.toLowerCase())) throw new DeploymentError("Predicted vault role/token conflict");
   await save(record);
   const vault=await new ethers.ContractFactory(artifact.abi,artifact.bytecode,signer).deploy(...constructorArgs(config),{nonce:record.nonce});
   record.deployTx=vault.deploymentTransaction().hash; await save(record);
@@ -109,7 +112,8 @@ async function deploy({network,config,signer,artifact,build,record,save}) {
   record.deployBlock=receipt.blockNumber;record.phase="deployed-awaiting-readback";await save(record);
   const options={blockTag:receipt.blockNumber};
   if(await vault.getAddress()!==record.vault || await vault.feeCollector(options)!==ethers.getAddress(config.feeCollector) ||
-    await vault.primaryReviewer(options)!==ethers.getAddress(config.primaryReviewer) || await vault.feeBps(options)!==BigInt(config.feeBps)) throw new DeploymentError("Milestone role readback failed");
+    await vault.primaryReviewer(options)!==ethers.getAddress(config.primaryReviewer) || await vault.fundingAdmin(options)!==ethers.getAddress(config.fundingAdmin) ||
+    await vault.fundingPaused(options) || await vault.feeBps(options)!==BigInt(config.feeBps)) throw new DeploymentError("Milestone role readback failed");
   for(const t of config.tokens) if(!await vault.supportedToken(t.address,options)) throw new DeploymentError("Milestone allowlist readback failed");
   record.runtimeHash=ethers.keccak256(await provider.getCode(record.vault,receipt.blockNumber));
   record.phase="deployed-verified-readback";record.sourceVerification="pending";record.readyForUse=false;

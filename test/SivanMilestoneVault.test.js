@@ -9,12 +9,12 @@ describe("SivanMilestoneVault (isolated local milestone escrow)", function () {
     const [buyer, contractor, treasury, primary, independent, stranger] = await ethers.getSigners();
     const token = await (await ethers.getContractFactory("MockERC20")).deploy("USDC", "USDC", 6);
     const Factory = await ethers.getContractFactory("SivanMilestoneVault");
-    const vault = await Factory.deploy(treasury.address, primary.address, 100, [await token.getAddress()]);
+    const vault = await Factory.deploy(treasury.address, primary.address, 100, [await token.getAddress()], "0x000000000000000000000000000000000000a110");
     const id = ethers.concat([buyer.address, "0x000000000000000000000001"]);
     const inputs = [100,250,150].map(amount => ({amount:u(amount),duration:7*day,scopeHash:ethers.id(String(amount))}));
     const c = {buyer,contractor,treasury,primary,independent,stranger,token,vault,Factory,id,inputs};
     c.propose = async (sequential=false, items=inputs, projectId=id, reviewer=independent.address) =>
-      vault.proposeProject(projectId,contractor.address,await token.getAddress(),reviewer,items,sequential,day,day,(await time.latest())+day);
+      vault.proposeProject(projectId,contractor.address,await token.getAddress(),reviewer,items,sequential,day,day,(await time.latest())+day,day);
     c.accept = async (projectId=id) => vault.connect(contractor).acceptProject(projectId,(await vault.projects(projectId)).termsHash);
     c.fund = async (projectId=id) => {
       const p = await vault.projects(projectId);
@@ -54,7 +54,7 @@ describe("SivanMilestoneVault (isolated local milestone escrow)", function () {
   it("prevents project ID squatting and proposal mutation", async () => {
     const c=await loadFixture(fixture);
     await expect(c.vault.connect(c.stranger).proposeProject(c.id,c.contractor.address,await c.token.getAddress(),
-      c.independent.address,c.inputs,false,day,day,(await time.latest())+day)).revertedWith("Project ID must belong to buyer");
+      c.independent.address,c.inputs,false,day,day,(await time.latest())+day,day)).revertedWith("Project ID must belong to buyer");
     await c.propose(); await expect(c.propose()).revertedWith("Project already exists");
   });
   it("rolls back every milestone and liability when the single transfer fails", async () => {
@@ -161,7 +161,7 @@ describe("SivanMilestoneVault (isolated local milestone escrow)", function () {
     for (const a of [c.buyer.address,c.contractor.address,c.treasury.address,c.primary.address,ethers.ZeroAddress,await c.vault.getAddress()]) {
       await expect(c.propose(false,c.inputs,c.id,a)).revertedWith("Independent reviewer conflict");
     }
-    await expect(c.Factory.deploy(c.treasury.address,c.primary.address,301,[await c.token.getAddress()])).revertedWith("Fee exceeds cap");
+    await expect(c.Factory.deploy(c.treasury.address,c.primary.address,301,[await c.token.getAddress()],"0x000000000000000000000000000000000000a110")).revertedWith("Fee exceeds cap");
   });
   it("does not accept expired proposals, repeat delivery or invalid indexes", async () => {
     const c=await loadFixture(fixture); await c.propose(); await time.increase(day+1);
@@ -173,9 +173,9 @@ describe("SivanMilestoneVault (isolated local milestone escrow)", function () {
   it("rejects fee-on-transfer deposits without leaving a funded project", async () => {
     const c=await loadFixture(fixture);
     const token=await (await ethers.getContractFactory("MockFeeOnTransferERC20")).deploy("Taxed","TAX",6,100);
-    const vault=await c.Factory.deploy(c.treasury.address,c.primary.address,100,[await token.getAddress()]);
+    const vault=await c.Factory.deploy(c.treasury.address,c.primary.address,100,[await token.getAddress()],"0x000000000000000000000000000000000000a110");
     await vault.proposeProject(c.id,c.contractor.address,await token.getAddress(),c.independent.address,
-      c.inputs,false,day,day,(await time.latest())+day);
+      c.inputs,false,day,day,(await time.latest())+day,day);
     const hash=(await vault.projects(c.id)).termsHash;
     await vault.connect(c.contractor).acceptProject(c.id,hash); await token.approve(await vault.getAddress(),u(500));
     await expect(vault.fundProject(c.id,hash)).revertedWith("Exact transfer required");

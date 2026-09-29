@@ -15,6 +15,7 @@ contract MilestoneSequenceHandler is Test {
     address public constant INDEPENDENT=address(0xA002);
     constructor(SivanMilestoneVault v,bytes32 project) { vault=v; id=project; }
     function advance(uint32 seconds_) external { vm.warp(block.timestamp+bound(seconds_,1,10 days)); }
+    function pauseFunding(bool paused) external { vm.prank(address(0xA110)); vault.setFundingPaused(paused); }
     function deliver(uint8 index) external {
         vm.prank(CONTRACTOR); vault.markDelivered(id,index%3,keccak256("proof"));
     }
@@ -44,24 +45,25 @@ contract MilestoneInvariantTest is StdInvariant,Test {
     function setUp() public {
         token=new MockERC20("Test USDC","USDC",6);
         address[] memory tokens=new address[](1); tokens[0]=address(token);
-        vault=new SivanMilestoneVault(TREASURY,address(0xA001),100,tokens);
+        vault=new SivanMilestoneVault(TREASURY,address(0xA001),100,tokens,address(0xA110));
         id=vault.deriveProjectId(BUYER,bytes12(uint96(1)));
         SivanMilestoneVault.Input[] memory inputs=new SivanMilestoneVault.Input[](3);
         inputs[0]=SivanMilestoneVault.Input(100e6,7 days,keccak256("design"));
         inputs[1]=SivanMilestoneVault.Input(250e6,7 days,keccak256("backend"));
         inputs[2]=SivanMilestoneVault.Input(150e6,7 days,keccak256("frontend"));
-        vm.prank(BUYER); vault.proposeProject(id,CONTRACTOR,address(token),address(0xA002),inputs,false,1 days,1 days,block.timestamp+1 days);
+        vm.prank(BUYER); vault.proposeProject(id,CONTRACTOR,address(token),address(0xA002),inputs,false,1 days,1 days,block.timestamp+1 days,1 days);
         bytes32 hash=vault.getProject(id).termsHash;
         vm.prank(CONTRACTOR); vault.acceptProject(id,hash);
         token.mint(BUYER,TOTAL);
         vm.startPrank(BUYER); token.approve(address(vault),TOTAL); vault.fundProject(id,hash); vm.stopPrank();
         handler=new MilestoneSequenceHandler(vault,id);
         targetContract(address(handler));
-        bytes4[] memory selectors=new bytes4[](8);
+        bytes4[] memory selectors=new bytes4[](9);
         selectors[0]=handler.advance.selector; selectors[1]=handler.deliver.selector;
         selectors[2]=handler.release.selector; selectors[3]=handler.refund.selector;
         selectors[4]=handler.dispute.selector; selectors[5]=handler.overdue.selector;
         selectors[6]=handler.escalate.selector; selectors[7]=handler.resolve.selector;
+        selectors[8]=handler.pauseFunding.selector;
         targetSelector(FuzzSelector(address(handler),selectors));
     }
     function invariant_allFundsConservedAndLiabilitiesBacked() public view {

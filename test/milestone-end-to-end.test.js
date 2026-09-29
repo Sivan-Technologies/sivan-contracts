@@ -9,7 +9,7 @@ describe("Milestone deployment-to-settlement end to end (local chain only)",()=>
     const token=adversarial
       ? await (await ethers.getContractFactory("MilestoneAdversarialToken")).deploy()
       : await (await ethers.getContractFactory("MockERC20")).deploy("Test USD","TUSD",decimals);
-    const vault=await (await ethers.getContractFactory("SivanMilestoneVault")).deploy(fee.address,primary.address,100,[await token.getAddress()]);
+    const vault=await (await ethers.getContractFactory("SivanMilestoneVault")).deploy(fee.address,primary.address,100,[await token.getAddress()],"0x000000000000000000000000000000000000a110");
     const walletFactory=await ethers.getContractFactory("MilestoneTestWallet");
     const buyerWallet=smart?await walletFactory.deploy(buyer.address):null;
     const contractorWallet=smart?await walletFactory.deploy(contractor.address):null;
@@ -25,7 +25,7 @@ describe("Milestone deployment-to-settlement end to end (local chain only)",()=>
       return wallet?wallet.connect(actor).execute(await vault.getAddress(),vault.interface.encodeFunctionData(method,args))
         :vault.connect(actor)[method](...args);
     }
-    await call(buyer,"proposeProject",[id,contractorAddress,await token.getAddress(),independent.address,inputs,sequential,DAY,DAY,(await time.latest())+DAY]);
+    await call(buyer,"proposeProject",[id,contractorAddress,await token.getAddress(),independent.address,inputs,sequential,DAY,DAY,(await time.latest())+DAY,DAY]);
     const p=await vault.getProject(id);
     await call(contractor,"acceptProject",[id,p.termsHash]);
     if(smart) await buyerWallet.execute(await token.getAddress(),token.interface.encodeFunctionData("approve",[await vault.getAddress(),total]));
@@ -86,6 +86,22 @@ describe("Milestone deployment-to-settlement end to end (local chain only)",()=>
       expect((await c.vault.getMilestone(c.id,0)).nonce).eq(0);
     }
     await c.vault.settleByAgreement(c.id,0,0,...await sign(c,0,0));
+  });
+  it("supports both contract-wallet signatures for case-scoped reviewer replacement",async()=>{
+    const c=await setup({smart:true});
+    await c.call(c.buyer,"disputeMilestone",[c.id,0]);
+    await time.increase(DAY+1);await c.vault.escalateMilestone(c.id,0);await time.increase(DAY);
+    const p=await c.vault.getProject(c.id),expiry=(await time.latest())+3600;
+    const domain={name:"SivanMilestoneVault",version:"1",chainId:31337,verifyingContract:await c.vault.getAddress()};
+    const types={ReviewerReplacement:[{name:"projectId",type:"bytes32"},{name:"index",type:"uint256"},{name:"termsHash",type:"bytes32"},
+      {name:"currentReviewer",type:"address"},{name:"replacement",type:"address"},{name:"nonce",type:"uint256"},{name:"expiry",type:"uint256"}]};
+    const value={projectId:c.id,index:0,termsHash:p.termsHash,currentReviewer:c.independent.address,replacement:c.relay.address,nonce:0,expiry};
+    await c.vault.replaceIndependentReviewer(c.id,0,c.relay.address,expiry,
+      await c.buyer.signTypedData(domain,types,value),await c.contractor.signTypedData(domain,types,value));
+    expect((await c.vault.getMilestone(c.id,0)).activeReviewer).eq(c.relay.address);
+    expect(await c.token.balanceOf(await c.vault.getAddress())).eq(c.total);
+    await c.vault.connect(c.relay).resolveMilestone(c.id,0,c.amounts[0]);
+    expect(await c.token.balanceOf(c.buyerAddress)).eq(c.amounts[0]);
   });
   it("rolls back state and all transfers when fee payout fails, then safely retries",async()=>{
     const c=await setup({adversarial:true});

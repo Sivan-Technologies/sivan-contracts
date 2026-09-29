@@ -21,6 +21,9 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
     bytes32 public constant SETTLEMENT_TYPEHASH = keccak256(
         "MilestoneSettlement(bytes32 projectId,uint256 index,bytes32 termsHash,uint256 buyerRefund,uint256 nonce,uint256 expiry)"
     );
+    bytes32 public constant REVIEWER_REPLACEMENT_TYPEHASH = keccak256(
+        "ReviewerReplacement(bytes32 projectId,uint256 index,bytes32 termsHash,address currentReviewer,address replacement,uint256 nonce,uint256 expiry)"
+    );
 
     enum State { Unfunded, Funded, Delivered, Disputed, Released, Refunded }
     struct Input {
@@ -44,6 +47,7 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
         bool sequential;
         bool accepted;
         bytes32 termsHash;
+        uint256 recoveryPeriod;
     }
     struct Milestone {
         uint256 amount;
@@ -56,11 +60,16 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
         State state;
         bytes32 scopeHash;
         bytes32 proofHash;
+        address activeReviewer;
+        uint256 reviewerAssignedAt;
+        uint256 replacementNonce;
     }
 
     address public immutable feeCollector;
     address public immutable primaryReviewer;
     uint256 public immutable feeBps;
+    address public immutable fundingAdmin;
+    bool public fundingPaused;
     mapping(address => bool) public supportedToken;
     mapping(address => uint256) public tokenLiability;
     mapping(bytes32 => Project) public projects;
@@ -73,12 +82,16 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
     event MilestoneDisputed(bytes32 indexed projectId, uint256 indexed index, uint256 primaryDeadline);
     event MilestoneEscalated(bytes32 indexed projectId, uint256 indexed index, address reviewer);
     event MilestoneSettled(bytes32 indexed projectId, uint256 indexed index, uint256 buyerRefund, uint256 contractorNet, uint256 fee);
+    event FundingPauseChanged(address indexed admin, bool paused);
+    event ReviewerReplaced(bytes32 indexed projectId, uint256 indexed index, address previousReviewer, address replacement, uint256 nonce);
 
-    constructor(address collector, address reviewer, uint256 rateBps, address[] memory tokens)
+    constructor(address collector, address reviewer, uint256 rateBps, address[] memory tokens, address admin)
         EIP712("SivanMilestoneVault", "1")
     {
         require(collector != address(0) && collector != address(this), "Invalid collector");
         require(reviewer != address(0) && reviewer != address(this), "Invalid reviewer");
+        require(admin != address(0) && admin != address(this) && admin != collector && admin != reviewer, "Invalid funding admin");
+        fundingAdmin = admin;
         require(rateBps <= MAX_FEE_BPS, "Fee exceeds cap");
         require(tokens.length > 0 && tokens.length <= 20, "Invalid token count");
         feeCollector = collector;
@@ -88,6 +101,14 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
             require(tokens[i].code.length > 0 && !supportedToken[tokens[i]], "Invalid token");
             supportedToken[tokens[i]] = true;
         }
+    }
+
+    /// @notice Only stops new deposits. No pause modifier applies to existing exits.
+    function setFundingPaused(bool paused) external {
+        require(msg.sender == fundingAdmin, "Only funding admin");
+        require(fundingPaused != paused, "Pause unchanged");
+        fundingPaused = paused;
+        emit FundingPauseChanged(msg.sender, paused);
     }
 
     function deriveProjectId(address buyer, bytes12 nonce) external pure returns (bytes32) {
@@ -103,21 +124,24 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
     function proposeProject(
         bytes32 id, address contractor, address token, address independentReviewer,
         Input[] calldata inputs, bool sequential, uint256 reviewWindow,
-        uint256 arbitrationWindow, uint256 acceptanceExpiry
+        uint256 arbitrationWindow, uint256 acceptanceExpiry, uint256 recoveryPeriod
     ) external {
         require(address(bytes20(id)) == msg.sender, "Project ID must belong to buyer");
         require(projects[id].buyer == address(0), "Project already exists");
         require(contractor != address(0) && contractor != msg.sender && contractor != address(this), "Invalid contractor");
         require(msg.sender != feeCollector && contractor != feeCollector, "Treasury party conflict");
         require(msg.sender != primaryReviewer && contractor != primaryReviewer, "Primary reviewer conflict");
+        require(msg.sender != fundingAdmin && contractor != fundingAdmin, "Funding admin party conflict");
         require(independentReviewer != address(0) && independentReviewer != address(this)
             && independentReviewer != msg.sender && independentReviewer != contractor
-            && independentReviewer != primaryReviewer && independentReviewer != feeCollector, "Independent reviewer conflict");
+            && independentReviewer != primaryReviewer && independentReviewer != feeCollector
+            && independentReviewer != fundingAdmin, "Independent reviewer conflict");
         require(supportedToken[token], "Unsupported token");
         require(inputs.length > 0 && inputs.length <= MAX_MILESTONES, "Invalid milestone count");
         require(reviewWindow >= 1 days && reviewWindow <= 30 days, "Invalid delivery review window");
         require(arbitrationWindow == 1 days || arbitrationWindow == 3 days || arbitrationWindow == 7 days, "Invalid arbitration window");
         require(acceptanceExpiry > block.timestamp && acceptanceExpiry <= block.timestamp + 30 days, "Invalid acceptance expiry");
+        require(recoveryPeriod >= 1 days && recoveryPeriod <= 30 days, "Invalid recovery period");
         uint256 total = 0;
         for (uint256 i; i < inputs.length; ++i) {
             require(inputs[i].amount > 0 && inputs[i].scopeHash != bytes32(0), "Invalid milestone");
@@ -138,9 +162,10 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
         p.arbitrationWindow = arbitrationWindow;
         p.count = inputs.length;
         p.sequential = sequential;
+        p.recoveryPeriod = recoveryPeriod;
         p.termsHash = keccak256(abi.encode(block.chainid, address(this), id, msg.sender, contractor,
             token, independentReviewer, primaryReviewer, feeCollector, feeBps, inputs, sequential,
-            reviewWindow, arbitrationWindow, acceptanceExpiry));
+            reviewWindow, arbitrationWindow, acceptanceExpiry, recoveryPeriod, fundingAdmin));
         uint256 cumulative = 0;
         uint256 allocated = 0;
         for (uint256 i; i < inputs.length; ++i) {
@@ -167,6 +192,7 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
 
     /// @notice One transfer funds all milestones or the entire transaction reverts.
     function fundProject(bytes32 id, bytes32 expectedTermsHash) external nonReentrant {
+        require(!fundingPaused, "Funding paused");
         Project storage p = projects[id];
         require(msg.sender == p.buyer, "Only buyer");
         require(p.accepted && block.timestamp <= p.acceptanceExpiry, "Terms not accepted or expired");
@@ -240,6 +266,8 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
         (Project storage p, Milestone storage m) = _get(id, index);
         require(m.state == State.Disputed && !m.escalated && block.timestamp > m.reviewDeadline, "Escalation not due");
         m.escalated = true;
+        m.activeReviewer = p.independentReviewer;
+        m.reviewerAssignedAt = block.timestamp;
         emit MilestoneEscalated(id, index, p.independentReviewer);
     }
 
@@ -248,9 +276,32 @@ contract SivanMilestoneVault is ReentrancyGuard, EIP712 {
     function resolveMilestone(bytes32 id, uint256 index, uint256 buyerRefund) external nonReentrant {
         (Project storage p, Milestone storage m) = _get(id, index);
         require(m.state == State.Disputed, "Not disputed");
-        if (m.escalated) require(msg.sender == p.independentReviewer, "Only independent reviewer");
+        if (m.escalated) require(msg.sender == m.activeReviewer, "Only independent reviewer");
         else require(msg.sender == primaryReviewer && block.timestamp <= m.reviewDeadline, "Primary review closed");
         _settle(id, index, p, m, buyerRefund);
+    }
+
+    /// @notice Changes only this case's reviewer, with both parties' explicit consent.
+    /// @dev A new reviewer receives a full agreed recovery period before replacement.
+    function replaceIndependentReviewer(bytes32 id, uint256 index, address replacement, uint256 expiry,
+        bytes calldata buyerSignature, bytes calldata contractorSignature) external nonReentrant
+    {
+        (Project storage p, Milestone storage m) = _get(id, index);
+        require(m.state == State.Disputed && m.escalated, "Not escalated dispute");
+        require(block.timestamp >= m.reviewerAssignedAt + p.recoveryPeriod, "Recovery not due");
+        require(replacement != address(0) && replacement != address(this) && replacement != m.activeReviewer
+            && replacement != p.buyer && replacement != p.contractor && replacement != feeCollector
+            && replacement != primaryReviewer && replacement != fundingAdmin, "Replacement reviewer conflict");
+        require(expiry >= block.timestamp && expiry <= block.timestamp + 1 days, "Invalid expiry");
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(REVIEWER_REPLACEMENT_TYPEHASH,
+            id, index, p.termsHash, m.activeReviewer, replacement, m.replacementNonce, expiry)));
+        require(SignatureChecker.isValidSignatureNow(p.buyer, digest, buyerSignature), "Buyer consent required");
+        require(SignatureChecker.isValidSignatureNow(p.contractor, digest, contractorSignature), "Contractor consent required");
+        address previous = m.activeReviewer;
+        ++m.replacementNonce;
+        m.activeReviewer = replacement;
+        m.reviewerAssignedAt = block.timestamp;
+        emit ReviewerReplaced(id, index, previous, replacement, m.replacementNonce);
     }
 
     /// @notice Both parties may cancel or agree a full/partial settlement while active.

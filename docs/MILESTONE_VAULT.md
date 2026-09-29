@@ -1,6 +1,9 @@
 # Milestone projects: separate vault
 
 Status: initial implementation and local tests, not deployed or independently audited.
+2026-09-29 update: funding-only pause and jointly signed per-case reviewer recovery
+are implemented. See [safeguards](MILESTONE_SAFEGUARDS.md) for the new constructor
+argument, recovery-period proposal argument and deployment requirements.
 `SivanAgreementVault.sol` and its interface, behavior and deployment commands are
 unchanged. `SivanMilestoneVault.sol` is a separate immutable contract, not a proxy,
 adapter or replacement for funded single agreements.
@@ -55,7 +58,9 @@ these exact allocations. No fees leave the vault at funding.
 - Primary review lasts an agreed 24 hours, 72 hours or seven days from dispute.
   After expiry, anyone may escalate to the independent reviewer. Expired primary
   authority cannot settle, even before the escalation transaction is submitted.
-- Independent review has no automatic payout timeout. Funds can remain disputed
+- Independent review has no automatic payout timeout. After the agreed recovery
+  wait, both parties can sign to replace the reviewer for only that milestone.
+  Funds can still remain disputed
   indefinitely if the reviewer does not act and the parties cannot agree. Disclose
   this limitation before funding; a keeper alone cannot decide the outcome.
 - Reviewers can award full or partial refunds. Both parties can also sign an EIP-712
@@ -74,8 +79,9 @@ deliverables and acceptance criteria; Sivan must retain that document durably.
 Terms cannot be edited; changed proposals need a new ID and fresh acceptance.
 
 The treasury and primary reviewer are immutable constructor roles. The independent
-reviewer cannot be a project party, the primary reviewer, the treasury or the vault.
-Parties cannot be the treasury or primary reviewer. There is no partner-fee path.
+reviewer cannot be a project party, the primary reviewer, the treasury, funding
+admin or the vault. Parties cannot be the treasury, primary reviewer or funding
+admin. There is no partner-fee path.
 The primary reviewer is the accepted Sivan decision-maker, not an AI payout key.
 
 Mutual settlement signatures bind project, milestone index, exact terms hash,
@@ -90,10 +96,11 @@ reuse. Reviewers and parties must independently review before signing.
   token behavior can still block settlement; allowlisting is not a token audit.
 - No token rescue or administrative drain exists. Unsolicited donations are not
   credited to a project and may be permanently stranded. Never send directly.
-- No pause, role rotation, fee update or token-list update exists in this initial
-  immutable implementation. Operational governance requires review before launch.
-- No changes to the existing single-agreement deployment scripts. They do not deploy
-  the milestone vault. No live deployment or application wiring has been performed.
+- A dedicated funding admin can pause new deposits only. No global role rotation,
+  fee update or token-list update exists. Per-case independent reviewer recovery
+  requires both parties' signatures, never a unilateral administrator decision.
+- No changes to existing single-agreement deployment scripts. A separate guarded
+  milestone runner is available. No live deployment or application wiring performed.
 
 ## Application integration still required
 

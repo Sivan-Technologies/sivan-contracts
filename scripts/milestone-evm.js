@@ -46,7 +46,7 @@ async function main() {
     const save=r=>{fs.writeFileSync(file+".tmp",JSON.stringify(r,null,2),{mode:0o600});fs.renameSync(file+".tmp",file);};
     await deploy({network,config,signer,artifact,build,record,save});
     console.log(JSON.stringify({vault:record.vault,phase:record.phase,sourceVerification:record.sourceVerification,readyForUse:false,journal:file}));
-    console.log("Immutable roles; no pause or handover. Source verification, independent review and application integration remain pending.");
+    console.log("Funding-only pause admin configured; no ownership handover. Source verification, independent review and application integration remain pending.");
   } finally {provider.destroy();}
 }
 if(require.main===module) main().catch(error=>{

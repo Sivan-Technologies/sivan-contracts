@@ -9,15 +9,21 @@ describe("Protected milestone deployment (local only)",()=>{
   async function fixture() {
     const [signer,treasury,reviewer,buyer,contractor,independent]=await ethers.getSigners();
     const token=await (await ethers.getContractFactory("MockERC20")).deploy("USDC","USDC",6);
+    const owners=(await ethers.getSigners()).slice(7,10).map(s=>s.address);
+    const admin=await (await ethers.getContractFactory("ControlWalletReadbackFixture")).deploy(owners);
+    const adminHash=ethers.keccak256(await ethers.provider.getCode(await admin.getAddress()));
     const network={...getNetwork("celoSepolia"),chainId:31337};
     const env={EVM_PROFILE:"testnet",SIVAN_FEE_COLLECTOR:treasury.address,CELO_SEPOLIA_MILESTONE_PRIMARY_REVIEWER:reviewer.address,
+      CELO_SEPOLIA_MILESTONE_FUNDING_ADMIN:await admin.getAddress(),CELO_SEPOLIA_MILESTONE_ADMIN_OWNERS_JSON:JSON.stringify(owners),
+      CELO_SEPOLIA_MILESTONE_ADMIN_CODE_HASH:adminHash,CELO_SEPOLIA_MILESTONE_ADMIN_IMPLEMENTATION_CODE_HASH:adminHash,
+      CELO_SEPOLIA_MILESTONE_ADMIN_FALLBACK_CODE_HASH:ethers.ZeroHash,
       CELO_SEPOLIA_MILESTONE_FEE_BPS:"100",CELO_SEPOLIA_MILESTONE_VERSION:"v1",CELO_SEPOLIA_MILESTONE_RISK_ACK:ACK,
       CELO_SEPOLIA_MILESTONE_CONTROL_MODE:"testnet_eoa",CELO_SEPOLIA_MILESTONE_REVIEWER_PROOF_EXPIRY:String((await time.latest())+3600),
       CELO_SEPOLIA_MILESTONE_TOKENS_JSON:JSON.stringify([{address:await token.getAddress(),symbol:"USDC",decimals:6}])};
     const config=configuration(network,env),artifact=await hre.artifacts.readArtifact(FQN),build=await hre.artifacts.getBuildInfo(FQN);
     const args={network,config,provider:ethers.provider,deployer:signer.address,artifact,build};
     config.proof=await reviewer.signMessage(challenge(args));
-    return {...args,env,signer,treasury,reviewer,buyer,contractor,independent,token};
+    return {...args,env,signer,treasury,reviewer,buyer,contractor,independent,token,admin};
   }
   it("blocks production, mainnet, pending networks and missing risk consent",async()=>{
     const c=await loadFixture(fixture);
@@ -82,6 +88,15 @@ describe("Protected milestone deployment (local only)",()=>{
     await expect(deploy({...c,record:{phase:"preflight"},save:()=>{throw Error("disk failure");}})).rejectedWith("disk failure");
     expect(await c.signer.getNonce()).eq(nonce);
   });
+  it("requires the funding admin to pass reviewed 2-of-3 checks even in testnet_eoa mode",async()=>{
+    const c=await loadFixture(fixture);
+    expect((await preflight(c)).fundingAdmin.threshold).eq(2);
+    await c.admin.changeThreshold(1);
+    await expect(preflight(c)).rejectedWith("2-of-3");
+    await c.admin.changeThreshold(2);
+    await expect(preflight({...c,config:{...c.config,fundingAdmin:c.independent.address}})).rejectedWith("code hash");
+    await expect(preflight({...c,config:{...c.config,fundingAdmin:c.signer.address}})).rejectedWith("separate");
+  });
   it("rechecks reviewer proof before broadcasting and refuses partial-run restart",async()=>{
     const c=await loadFixture(fixture);
     await expect(deploy({...c,record:{phase:"deployment-broadcast-intent"},save:()=>{}})).rejectedWith("do not retry blindly");
@@ -97,7 +112,7 @@ describe("Protected milestone deployment (local only)",()=>{
     expect(record.runtimeHash).eq(ethers.keccak256(await ethers.provider.getCode(record.vault)));
     const id=await vault.deriveProjectId(c.buyer.address,"0x000000000000000000000001"),amount=100000000n;
     await vault.connect(c.buyer).proposeProject(id,c.contractor.address,await c.token.getAddress(),c.independent.address,
-      [{amount,duration:86400,scopeHash:ethers.id("scope")}],false,86400,86400,(await time.latest())+3600);
+      [{amount,duration:86400,scopeHash:ethers.id("scope")}],false,86400,86400,(await time.latest())+3600,86400);
     const p=await vault.getProject(id);await vault.connect(c.contractor).acceptProject(id,p.termsHash);
     await c.token.mint(c.buyer.address,amount);await c.token.connect(c.buyer).approve(record.vault,amount);
     await vault.connect(c.buyer).fundProject(id,p.termsHash);

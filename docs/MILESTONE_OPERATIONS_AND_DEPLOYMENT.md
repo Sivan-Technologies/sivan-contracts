@@ -1,7 +1,8 @@
 # Milestone operations review and guarded testnet deployment
 
-2026-09-29. No deployment performed. Existing single-job Solidity, interface,
-deployment helper and CLI are unchanged. This is not independent audit approval.
+2026-09-29. Updated for [implemented safeguards](MILESTONE_SAFEGUARDS.md).
+No deployment performed. Existing single-job Solidity, interface, deployment helper
+and CLI are unchanged. This is not independent audit approval.
 
 ## Hosted CI at commit 1d2d913
 
@@ -17,16 +18,15 @@ synthetic chain for the requested real-state fork.
 
 | Risk | Current behavior | Recommendation before production |
 | --- | --- | --- |
-| Incident response | No pause; disabling the UI cannot stop direct contract calls | Consider a narrowly scoped emergency pause for new proposals/funding, leaving safe existing exits available; agree authority and unpause controls before implementation |
+| Incident response | Admin can pause new funding only; existing exits stay available | Reviewed dedicated 2-of-3 funding-admin multisig; monitor pause/unpause events |
 | Primary reviewer lost | Deadline expires and anyone can escalate; no replacement is needed to reach independent review | Use a reviewed primary-reviewer multisig with independent key custody; operate a deadline-monitoring keeper |
-| Independent reviewer unavailable | No automatic award or unilateral disputed refund; parties can jointly sign a settlement; otherwise funds remain locked indefinitely | Disclose explicitly and consider bilateral reviewer replacement with fresh consent before adding that authority |
+| Independent reviewer unavailable | Both parties can replace the case reviewer after the agreed recovery wait; no automatic award | Disclose that either party can refuse; mutual settlement remains available |
 | Immutable role addresses | No vault-level rotation of treasury or primary reviewer | A deployed Safe can rotate its own signers at the same address; verify policies per chain and monitor later changes |
 | Treasury transfer blocked | Settlement reverts atomically, not partially | Test intended token issuer restrictions and treasury implementation; no admin drain or forced payout workaround |
 | Token contract changes | Metadata alone cannot prove safe token behavior | Independently approve exact-transfer, non-rebasing issuers/implementations; token pause/blacklist remains external risk |
 
-These are review recommendations, **not implemented governance powers**. No contract
-business rules changed in this work. An acknowledgement flag does not make the
-risks disappear, and mainnet remains blocked.
+Funding pause and bilateral reviewer recovery are implemented, not global role
+rotation or administrative settlement powers. Mainnet remains blocked.
 
 ## Separate milestone tooling
 
@@ -57,7 +57,9 @@ Required protections:
 - Collector priority: milestone-specific override → network collector → shared
   `SIVAN_FEE_COLLECTOR`. Invalid nonempty overrides fail rather than falling back.
 - Explicit primary reviewer, fee rate (0–300 bps), release version, token metadata,
-  control mode and `immutable-no-pause-no-role-rotation` risk acknowledgement.
+  control mode and `funding-pause-bilateral-reviewer-recovery` risk acknowledgement.
+- Dedicated `FUNDING_ADMIN` and reviewed `ADMIN_*` 2-of-3 policy are mandatory even
+  in testnet_eoa mode. Admin is separate from deployer, treasury and primary reviewer.
 - Deployer, treasury and reviewer must be distinct. `multisig` mode checks reviewed
   2-of-3 treasury/reviewer policies using the existing read-only Safe checks.
   Contract wallets cannot masquerade as the `testnet_eoa` mode.
@@ -79,12 +81,13 @@ Required protections:
   compiler settings, commit, constructor args, transaction and runtime hash.
   Readback does not establish source verification or application readiness.
 
-The milestone contract has no owner or ownership handover and is fundable after
-deployment; it cannot honestly report “paused pending acceptance.” Do not advertise
+The milestone contract has no owner or ownership handover. The immutable funding
+admin may pause new deposits, but deployment currently starts unpaused. It cannot
+honestly report “paused pending acceptance.” Do not advertise
 or wire its address into the application until verification and review complete.
 The journal always reports `readyForUse:false` and `sourceVerification:pending`.
 
-## Local verification
+## Initial tooling verification (before safeguard extension)
 
 All **225 Hardhat tests passed**, including 11 new milestone deployment-tooling
 tests: policy/role/configuration guards, wrong-chain/artifact rejection, bound and
@@ -94,13 +97,14 @@ local deploy → readback → funding → delivery → settlement lifecycle. Exi
 multisig readback regressions also passed. ERC-1271 fixtures are test-only wallets,
 not proof of a live Safe signing integration. No RPC testnet deployment was run.
 
-Both vault Solidity files and the original `scripts/evm.js` and
-`scripts/helpers/evm-deployment.js` remain unchanged. Syntax and diff checks passed.
+That tooling-only revision did not alter either vault. The subsequent safeguard
+extension modifies only the milestone vault; see [current checks](MILESTONE_SAFEGUARDS.md).
+The original `scripts/evm.js` and `scripts/helpers/evm-deployment.js` remain unchanged.
 
 ## Source verification and release gates
 
-Use the journal's four constructor arguments in order: treasury, primary reviewer,
-fee bps, token address array. Verify against `contracts/SivanMilestoneVault.sol` with
+Use the journal's five constructor arguments in order: treasury, primary reviewer,
+fee bps, token address array, funding admin. Verify against `contracts/SivanMilestoneVault.sol` with
 the journal's exact compiler settings. Do not use the single-vault constructor or
 hand-over instructions. Independent source verification, protected production
 signing, governance decisions and full application testnet integration remain

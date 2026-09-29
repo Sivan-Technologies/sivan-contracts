@@ -10,7 +10,7 @@ describe("Single and milestone agreements together (local E2E)",()=>{
     const token=await (await ethers.getContractFactory("MockERC20")).deploy("Test USDC","USDC",6);
     const single=await (await ethers.getContractFactory("SivanAgreementVault")).deploy(treasury.address,agent.address,9827,owner.address);
     await single.setSupportedToken(await token.getAddress(),true);
-    const multi=await (await ethers.getContractFactory("SivanMilestoneVault")).deploy(treasury.address,owner.address,100,[await token.getAddress()]);
+    const multi=await (await ethers.getContractFactory("SivanMilestoneVault")).deploy(treasury.address,owner.address,100,[await token.getAddress()],"0x000000000000000000000000000000000000a110");
     // Deliberately reuse the buyer's ID in distinct vaults to test address/domain isolation.
     const id=ethers.concat([buyer.address,"0x000000000000000000000123"]);
     await token.transfer(buyer.address,U(600));
@@ -18,7 +18,7 @@ describe("Single and milestone agreements together (local E2E)",()=>{
     await fund(single.connect(buyer),id,contractor.address,await token.getAddress(),U(100),24,partner.address);
     const inputs=[100,250,150].map((n,i)=>({amount:U(n),duration:7*DAY,scopeHash:ethers.id(`scope-${i}`)}));
     await multi.connect(buyer).proposeProject(id,contractor.address,await token.getAddress(),independent.address,
-      inputs,false,DAY,DAY,(await time.latest())+DAY);
+      inputs,false,DAY,DAY,(await time.latest())+DAY,DAY);
     const p=await multi.getProject(id);
     await multi.connect(contractor).acceptProject(id,p.termsHash);
     const c={owner,buyer,contractor,treasury,agent,partner,independent,token,single,multi,id};

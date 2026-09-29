@@ -18,12 +18,12 @@ contract MilestoneAccountingTest is Test {
         uint256 feeRate = bound(rate,0,300);
         MockERC20 token = new MockERC20("Test", "TEST", 6);
         address[] memory tokens = new address[](1); tokens[0]=address(token);
-        SivanMilestoneVault vault = new SivanMilestoneVault(TREASURY,REVIEWER,feeRate,tokens);
+        SivanMilestoneVault vault = new SivanMilestoneVault(TREASURY,REVIEWER,feeRate,tokens,address(0xA110));
         bytes32 id=vault.deriveProjectId(BUYER,bytes12(uint96(1)));
         SivanMilestoneVault.Input[] memory inputs = new SivanMilestoneVault.Input[](3);
         for(uint256 i; i<3; ++i) inputs[i]=SivanMilestoneVault.Input(amounts[i],7 days,keccak256(abi.encode(i)));
         vm.prank(BUYER);
-        vault.proposeProject(id,CONTRACTOR,address(token),INDEPENDENT,inputs,false,1 days,1 days,block.timestamp+1 days);
+        vault.proposeProject(id,CONTRACTOR,address(token),INDEPENDENT,inputs,false,1 days,1 days,block.timestamp+1 days,1 days);
         SivanMilestoneVault.Project memory p=vault.getProject(id);
         vm.prank(CONTRACTOR); vault.acceptProject(id,p.termsHash);
         token.mint(BUYER,total);
