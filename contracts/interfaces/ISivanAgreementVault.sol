@@ -196,10 +196,17 @@ interface ISivanAgreementVault {
 
     function refundBuyer(bytes32 agreementId) external;
 
+    /// @notice Direct contractor refund; signature must be empty. Legacy relays are rejected.
     function mutualRefund(
         bytes32 agreementId,
         bytes calldata contractorConsentSignature
     ) external;
+
+    /// @notice Relayed EIP-712/ERC-1271 refund using the current refund consent nonce and expiry.
+    function mutualRefundWithConsent(bytes32 agreementId, uint256 expiry, bytes calldata signature) external;
+
+    /// @notice Contractor-only cancellation; also available while paused.
+    function invalidateRefundConsent(bytes32 agreementId) external;
 
     /**
      * @notice Freezes an agreement for arbitration. Callable by either party.

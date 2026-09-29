@@ -2,6 +2,12 @@
 
 Autonomous, Non-Custodial Service Agreement Settlement Facility on Celo for Sivan AI and Web3 Builders.
 
+Single-agreement security/API update: delivery is contractor-only; relayed
+refunds use expiring, cancellable consent. See the
+[2026-09-29 remediation and integration notes](docs/SECURITY_REMEDIATION_2026-09-29.md).
+These changes require a new immutable deployment and updated client integration;
+they do not patch existing deployed vaults. Mainnet deployment remains gated.
+
 Where this sits: Sivan's x402 stack has two layers. Layer 1 is off-chain:
 the backend answers HTTP 402 Payment Required with settlement terms and prepares
 EIP-712 payloads. Layer 2 is this contract: the on-chain facility those payments

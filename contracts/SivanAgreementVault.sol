@@ -94,8 +94,13 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     );
 
     bytes32 public constant CONTRACTOR_CONSENT_TYPEHASH = keccak256(
-        "ContractorRefundConsent(bytes32 agreementId,uint256 nonce)"
+        "ContractorRefundConsent(bytes32 agreementId,uint256 nonce,uint256 expiry)"
     );
+
+    // Separate from buyer release/settlement nonces: only contractor refund
+    // consent is revoked by cancellation or a new delivery/dispute state.
+    mapping(bytes32 => uint256) public refundConsentNonces;
+    event RefundConsentInvalidated(bytes32 indexed agreementId, uint256 nonce);
 
     bytes32 public constant DISPUTE_SETTLEMENT_TYPEHASH = keccak256(
         "DisputeSettlement(bytes32 agreementId,uint256 buyerRefund,uint256 nonce,uint256 expiry)"
@@ -691,7 +696,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     ) external override {
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Funded, "Agreement not in funded state");
-        require(msg.sender == agr.contractor || msg.sender == agr.buyer, "Unauthorized deliverer");
+        require(msg.sender == agr.contractor, "Only contractor can mark delivery");
         require(bytes(proofUrl).length > 0, "Proof URL required");
         /**
          * Work delivered after the deadline is late, and a late delivery cannot
@@ -707,6 +712,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         agr.state = AgreementState.Delivered;
         agr.deliverableProof = proofUrl;
         agr.deliveredAt = block.timestamp;
+        _invalidateRefundConsent(agreementId);
 
         /**
          * Push the refund out by the window SNAPSHOTTED AT FUNDING, not the
@@ -923,7 +929,8 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     // ─── Safety Lifecycle: Mutual Refund ─────────────────────────────────────
 
     /**
-     * @notice Allows mutual refund back to buyer if contractor explicitly consents.
+     * @notice Contractor directly refunds the buyer. Legacy relayed signatures
+     * are deliberately refused; use mutualRefundWithConsent for bounded consent.
      */
     function mutualRefund(
         bytes32 agreementId,
@@ -935,17 +942,42 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
             "Cannot refund in current state"
         );
 
-        if (msg.sender != agr.contractor) {
-            require(contractorConsentSignature.length == 65, "Invalid signature length");
-            uint256 nonce = agreementNonces[agreementId]++;
-            bytes32 consentStructHash = keccak256(
-                abi.encode(CONTRACTOR_CONSENT_TYPEHASH, agreementId, nonce)
-            );
-            bytes32 consentDigest = _hashTypedDataV4(consentStructHash);
-            address recoveredContractor = ECDSA.recover(consentDigest, contractorConsentSignature);
-            require(recoveredContractor == agr.contractor, "Contractor consent required for mutual refund");
-        }
+        require(msg.sender == agr.contractor, "Use expiring refund consent");
+        require(contractorConsentSignature.length == 0, "Direct refund needs no signature");
+        _refundWithContractorConsent(agreementId, agr);
+    }
 
+    /// @notice Relayed refund with expiring EOA or ERC-1271 contractor consent.
+    function mutualRefundWithConsent(bytes32 agreementId, uint256 expiry, bytes calldata signature)
+        external override nonReentrant
+    {
+        Agreement storage agr = agreements[agreementId];
+        require(agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered
+            || agr.state == AgreementState.Disputed, "Cannot refund in current state");
+        require(expiry >= block.timestamp && expiry <= block.timestamp + MAX_AUTHORIZATION_WINDOW,
+            "Invalid refund consent expiry");
+        bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(CONTRACTOR_CONSENT_TYPEHASH,
+            agreementId, refundConsentNonces[agreementId], expiry)));
+        require(SignatureChecker.isValidSignatureNow(agr.contractor, digest, signature),
+            "Contractor refund consent required");
+        _refundWithContractorConsent(agreementId, agr);
+    }
+
+    /// @notice Contractor cancels all outstanding refund consent at this nonce.
+    function invalidateRefundConsent(bytes32 agreementId) external override {
+        Agreement storage agr = agreements[agreementId];
+        require(msg.sender == agr.contractor, "Only contractor can cancel consent");
+        require(agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered
+            || agr.state == AgreementState.Disputed, "Cannot cancel in current state");
+        _invalidateRefundConsent(agreementId);
+    }
+
+    function _invalidateRefundConsent(bytes32 agreementId) internal {
+        emit RefundConsentInvalidated(agreementId, ++refundConsentNonces[agreementId]);
+    }
+
+    function _refundWithContractorConsent(bytes32 agreementId, Agreement storage agr) internal {
+        _invalidateRefundConsent(agreementId);
         agr.state = AgreementState.Refunded;
         uint256 refundAmount = agr.totalAmount;
 
@@ -1029,6 +1061,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
         agr.state = AgreementState.Disputed;
         agr.disputedAt = block.timestamp;
+        _invalidateRefundConsent(agreementId);
 
         ArbitrationCase storage review = arbitrationCases[agreementId];
         review.primaryDeadline = block.timestamp + review.primaryReviewPeriod;

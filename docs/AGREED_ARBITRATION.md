@@ -77,7 +77,12 @@ window default does not change an already accepted inspection window.
 
 ## Voluntary settlement
 
-Existing contractor-consented `mutualRefund` still returns everything to the buyer.
+Direct `mutualRefund(id, "0x")` still lets the contractor return everything to the
+buyer. Legacy relayed refund signatures are rejected. Relayers must use
+`mutualRefundWithConsent(id, expiry, signature)` with the current
+`refundConsentNonces(id)`. Contractor cancellation, recording delivery and opening
+a dispute invalidate previously issued refund consent. See
+[the current signing schema and migration notes](SECURITY_REMEDIATION_2026-09-29.md).
 It is a voluntary contractor concession, not an arbitration award.
 
 `settleDisputeByAgreement` additionally accepts a buyer refund and pays the remainder
