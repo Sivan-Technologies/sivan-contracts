@@ -1,5 +1,9 @@
 # EVM tooling: first implementation
 
+For all ten planned network families, see the [RPC, environment and GitHub CI
+configuration guide](EVM_RPC_AND_GITHUB_CONFIGURATION.md). Published endpoints
+do not activate pending profiles or override deployment gates.
+
 2026-09-26. Updated after security remediation. Future deployments require
 buyer-namespaced agreement IDs; existing immutable vaults are not modified.
 The settlement signature domain is unchanged.

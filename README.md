@@ -1,5 +1,8 @@
 # Sivan Celo Smart Contracts (sivan-contracts)
 
+Network setup: [complete EVM RPC and GitHub configuration reference](docs/EVM_RPC_AND_GITHUB_CONFIGURATION.md)
+covers local testing, public testnets and mainnets, with current deployment gates.
+
 Autonomous, Non-Custodial Service Agreement Settlement Facility on Celo for Sivan AI and Web3 Builders.
 
 Single-agreement security/API update: delivery is contractor-only; relayed
