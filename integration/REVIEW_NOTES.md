@@ -1,5 +1,30 @@
 # Integration review log
 
+## 2026-10-07 — PBKDF2 tooling advisory remediation
+
+Pinned the transitive `pbkdf2` dependency to patched 3.1.7 with an npm override
+and regenerated the lockfile. Only that installed package changed; Hardhat and
+its plugin major versions were not upgraded. Advisory:
+https://github.com/advisories/GHSA-477h-4r7f-fvrx.
+
+Frontend/adapter impact: none expected. This changes a JavaScript development
+dependency, not Solidity source, ABI, consent types, fees, state transitions or
+deployed addresses. No user migration or new frontend signing flow is required.
+
+Validation: `npm audit --audit-level=moderate` exited successfully (15 low elliptic
+findings remain; no moderate/high/critical findings). Full local Hardhat suite:
+278 passing, including a new regression comparing the patched pure-JS PBKDF2
+implementation against Node crypto for short/long passwords and SHA-256/SHA-512.
+This verifies derivation compatibility, not a performance/security certification.
+The CI audit threshold remains unchanged. No advisory was suppressed.
+Two forced local compilations passed and matched via `npm run release:reproducible`.
+The regenerated ABI reference is unchanged, and the integration baseline check
+passes after recording the dependency and documentation updates.
+
+The low elliptic findings still require separate toolchain migration/review;
+this patch resolves the reported moderate CI blocker, not every dependency risk.
+Remote GitHub CI has not run this uncommitted change. No live transactions made.
+
 ## 2026-10-07 — Initial strict integration baseline
 
 Scope: both vaults, the single-vault interface, production Solidity dependencies

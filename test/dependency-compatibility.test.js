@@ -1,6 +1,18 @@
 const { expect } = require("chai");
 
 describe("Patched build dependency compatibility", () => {
+  it("uses patched PBKDF2 and preserves long-password derivation", () => {
+    const { pbkdf2Sync } = require("crypto");
+    // Exercise the JS implementation implicated in the advisory, not its native wrapper.
+    const derive = require("pbkdf2/lib/sync");
+    expect(require("pbkdf2/package.json").version).to.equal("3.1.7");
+    for (const digest of ["sha256", "sha512"]) {
+      for (const password of ["short", "x".repeat(4096)]) {
+        const expected = pbkdf2Sync(password, "test-only-salt", 10, 32, digest);
+        expect(derive(password, "test-only-salt", 10, 32, digest).equals(expected)).to.equal(true);
+      }
+    }
+  });
   it("preserves the archive API used by the compiler downloader", () => {
     const Zip = require("adm-zip");
     const zip = new Zip();
