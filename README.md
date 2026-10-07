@@ -1,5 +1,7 @@
 # Sivan Celo Smart Contracts (sivan-contracts)
 
+Frontend and partner integration: [versioned adapter architecture and integration guide](integration/README.md).
+
 Network setup: [complete EVM RPC and GitHub configuration reference](docs/EVM_RPC_AND_GITHUB_CONFIGURATION.md)
 covers local testing, public testnets and mainnets, with current deployment gates.
 

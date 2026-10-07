@@ -39,6 +39,9 @@ jobs:
       - name: Repeatable build check
         run: npm run release:reproducible
 
+      - name: Integration documentation drift gate
+        run: npm run integration:check
+
       - name: Test
         run: npx hardhat test
 

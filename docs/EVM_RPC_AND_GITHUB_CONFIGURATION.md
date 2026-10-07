@@ -3,6 +3,10 @@
 Documentation checked: 2026-09-30. Scope: all 20 profiles in
 [the network registry](../config/evm-networks.cjs), across ten network families.
 
+2026-10-07 update: Arc Testnet's registry ID is now 5042002, but deployment
+remains pending. See [five-testnet validation](FIVE_TESTNET_VALIDATION.md) for
+the read-only RPC results and remaining deployment gates.
+
 This is a configuration reference, not evidence of successful deployments.
 Public endpoints were checked against the linked documentation, not load-tested
 or certified for historical-state access. No deployment, secret, environment
@@ -40,7 +44,7 @@ vault's accepted ERC-20 tokens.
 | optimismSepolia | `OP_SEPOLIA_RPC_URL` | 11155420 | ETH | `https://sepolia.optimism.io` ([Optimism](https://docs.optimism.io/op-mainnet/network-information/connecting-to-op)) | Pending |
 | polygonAmoy | `POLYGON_AMOY_RPC_URL` | 80002 | POL | `https://polygon-amoy.drpc.org` ([Polygon](https://docs.polygon.technology/pos/reference/rpc-endpoints)) | Pending |
 | bscTestnet | `BSC_TESTNET_RPC_URL` | 97 | BNB | `https://bsc-testnet-dataseed.bnbchain.org` ([BNB Chain](https://docs.bnbchain.org/bnb-smart-chain/developers/json_rpc/json-rpc-endpoint/)) | Pending |
-| arcTestnet | `ARC_TESTNET_RPC_URL` | 5042002 | USDC | `https://rpc.testnet.arc.io` ([Arc](https://docs.arc.io/arc/references/connect-to-arc)) | Pending; registry ID unset |
+| arcTestnet | `ARC_TESTNET_RPC_URL` | 5042002 | USDC | `https://rpc.testnet.arc.io` ([Arc](https://docs.arc.io/arc/references/connect-to-arc)) | Pending |
 | lineaTestnet | `LINEA_TESTNET_RPC_URL` | 59141 | ETH | `https://rpc.sepolia.linea.build` ([Linea](https://docs.linea.build/get-started/build/network-info/)) | Pending; registry ID unset |
 | sonicTestnet | `SONIC_TESTNET_RPC_URL` | 14601 | S | `https://rpc.testnet.soniclabs.com` ([Sonic](https://docs.soniclabs.com/sonic/build-on-sonic/getting-started)) | Pending; registry ID unset |
 
@@ -67,7 +71,7 @@ Published IDs below do not change that. An RPC setting alone is insufficient.
 | linea | `LINEA_RPC_URL` | 59144 | ETH | `https://rpc.linea.build` ([Linea](https://docs.linea.build/get-started/build/network-info/)) |
 | sonic | `SONIC_RPC_URL` | 146 | S | `https://rpc.soniclabs.com` ([Sonic](https://docs.soniclabs.com/sonic/build-on-sonic/getting-started)) |
 
-Arc, Linea and Sonic have unset registry IDs on both environments. Their published
+Arc mainnet, plus Linea and Sonic on both environments, have unset registry IDs. Their published
 IDs are recorded here for review; their profiles are not activated. The Hardhat
 network factory skips profiles without a registry ID even if an RPC is supplied.
 
@@ -93,8 +97,8 @@ OP_SEPOLIA_RPC_URL=https://sepolia.optimism.io
 POLYGON_AMOY_RPC_URL=https://polygon-amoy.drpc.org
 BSC_TESTNET_RPC_URL=https://bsc-testnet-dataseed.bnbchain.org
 
-# Reference only: registry IDs also need a reviewed implementation:
 ARC_TESTNET_RPC_URL=https://rpc.testnet.arc.io
+# Reference only: registry IDs also need a reviewed implementation:
 LINEA_TESTNET_RPC_URL=https://rpc.sepolia.linea.build
 SONIC_TESTNET_RPC_URL=https://rpc.testnet.soniclabs.com
 ```
@@ -189,4 +193,3 @@ Celo job with another chain's source URL. Separate jobs can each use localhost
 Public endpoints are convenient for development, not an uptime guarantee.
 Use authenticated provider access where needed, never log credential-bearing
 URLs, and never put signer keys in this guide or unprotected CI jobs.
-

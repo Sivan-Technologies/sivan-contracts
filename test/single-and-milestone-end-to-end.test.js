@@ -3,11 +3,14 @@ const {ethers}=require("hardhat");
 const {time,loadFixture}=require("@nomicfoundation/hardhat-network-helpers");
 const {fund}=require("./helpers/fund");
 
-describe("Single and milestone agreements together (local E2E)",()=>{
+for (const variant of ['USDC', 'USDT standard', 'USDT legacy']) {
+describe(`Single and milestone agreements together (${variant}, local fixtures only)`,()=>{
   const U=n=>BigInt(n)*1000000n, DAY=86400;
   async function fixture() {
     const [owner,buyer,contractor,treasury,agent,partner,,,,independent]=await ethers.getSigners();
-    const token=await (await ethers.getContractFactory("MockERC20")).deploy("Test USDC","USDC",6);
+    const token=variant === 'USDT legacy'
+      ? await (await ethers.getContractFactory('LegacyUsdtFixture')).deploy()
+      : await (await ethers.getContractFactory("MockERC20")).deploy(`Test ${variant}`,variant === 'USDC' ? 'USDC' : 'USDT',6);
     const single=await (await ethers.getContractFactory("SivanAgreementVault")).deploy(treasury.address,agent.address,9827,owner.address);
     await single.setSupportedToken(await token.getAddress(),true);
     const multi=await (await ethers.getContractFactory("SivanMilestoneVault")).deploy(treasury.address,owner.address,100,[await token.getAddress()],"0x000000000000000000000000000000000000a110");
@@ -135,4 +138,37 @@ describe("Single and milestone agreements together (local E2E)",()=>{
     expect((await c.single.getAgreement(c.id)).state).eq(3);
     expect((await c.multi.getProject(c.id)).remaining).eq(U(400));
   });
+  if (variant === 'USDT legacy') {
+    it('proves empty return data and enforces zero-first approval',async()=>{
+      const c=await loadFixture(fixture), spender=await c.single.getAddress();
+      await c.token.connect(c.buyer).approve(spender,U(1));
+      const data=c.token.interface.encodeFunctionData('transfer',[c.contractor.address,1]);
+      expect(await ethers.provider.call({from:c.buyer.address,to:await c.token.getAddress(),data})).eq('0x');
+      await expect(c.token.connect(c.buyer).approve(spender,U(2))).revertedWith('Reset allowance first');
+      await c.token.connect(c.buyer).approve(spender,0);
+      await c.token.connect(c.buyer).approve(spender,U(2));
+      expect(await c.token.allowance(c.buyer.address,spender)).eq(U(2));
+    });
+    it('rolls back blocked USDT payouts in both vaults and allows retry',async()=>{
+      const c=await loadFixture(funded);
+      const before=await c.single.getAgreement(c.id);
+      await c.deliverMulti(0);
+      await c.token.setBlocked(c.treasury.address);
+      await expect(c.single.connect(c.buyer).releasePayment(c.id,'0x','0x',0)).reverted;
+      await expect(c.releaseMulti(0)).reverted;
+      expect((await c.single.getAgreement(c.id)).state).eq(before.state);
+      expect((await c.multi.getMilestone(c.id,0)).state).eq(2);
+      expect(await c.token.balanceOf(c.contractor.address)).eq(0);
+      expect(await c.token.balanceOf(await c.single.getAddress())).eq(U(100));
+      expect(await c.token.balanceOf(await c.multi.getAddress())).eq(U(500));
+      await c.token.setBlocked(ethers.ZeroAddress);
+      await c.single.connect(c.buyer).releasePayment(c.id,'0x','0x',0);
+      for(const i of [0,1,2]) { if(i!==0) await c.deliverMulti(i); await c.releaseMulti(i); }
+      expect(await c.token.balanceOf(await c.single.getAddress())).eq(0);
+      expect(await c.token.balanceOf(await c.multi.getAddress())).eq(0);
+      expect(await c.multi.tokenLiability(await c.token.getAddress())).eq(0);
+      expect(await c.token.balanceOf(c.contractor.address)).eq(before.netAmount+U(495));
+    });
+  }
 });
+}

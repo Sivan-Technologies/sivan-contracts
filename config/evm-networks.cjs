@@ -9,7 +9,7 @@ const definitions = [
   ["optimismSepolia", 11155420, "OP_SEPOLIA", true, "pending"],
   ["polygonAmoy", 80002, "POLYGON_AMOY", true, "pending"],
   ["bscTestnet", 97, "BSC_TESTNET", true, "pending"],
-  ["arcTestnet", null, "ARC_TESTNET", true, "pending"],
+  ["arcTestnet", 5042002, "ARC_TESTNET", true, "pending"],
   ["lineaTestnet", null, "LINEA_TESTNET", true, "pending"],
   ["sonicTestnet", null, "SONIC_TESTNET", true, "pending"],
   ["celo", 42220, "CELO", false, "pending"],
