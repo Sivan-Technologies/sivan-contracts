@@ -1,5 +1,11 @@
 # Sivan frontend and contract adapter integration
 
+Claim-link escrow is a separate capability: see [Claim Vault v1](CLAIM_VAULT.md)
+for its implemented contract, authorization schema, fees/refunds and outstanding
+application integration. Do not route claim links through agreement adapters.
+The generated ABI reference now includes the claim vault alongside both existing
+agreement vaults; existing agreement semantics and deployments are unchanged.
+
 Status: proposed integration specification, not an implemented SDK or API.
 Reviewed against the local single-agreement and milestone contracts on 2026-10-07.
 No frontend, backend, deployed contract or signing workflow is changed by this file.

@@ -205,3 +205,78 @@ error SafeERC20FailedOperation(address token)
 error StringTooLong(string str)
 ```
 
+
+## SivanClaimVault
+
+Source: [SivanClaimVault.sol](../contracts/SivanClaimVault.sol)
+
+### constructor
+
+```text
+constructor(address admin, address treasury_, address[] tokens)
+```
+
+### function
+
+```text
+function CLAIM_TYPEHASH() view returns (bytes32)
+function CLAIM_WINDOW() view returns (uint256)
+function FEE_BPS() view returns (uint256)
+function acceptOwnership()
+function allowedTokens(address) view returns (bool)
+function claim(bytes32 depositId, address recipient, uint256 deadline, bytes signature)
+function claimDigest(bytes32 depositId, address recipient, uint256 deadline) view returns (bytes32)
+function deposit(address token, uint256 grossAmount, address claimSigner) returns (bytes32 depositId)
+function deposits(bytes32) view returns (address sender, address token, address claimSigner, uint256 netAmount, uint256 expiresAt, uint8 status)
+function deriveDepositId(address sender, uint256 nonce) view returns (bytes32)
+function eip712Domain() view returns (bytes1 fields, string name, string version, uint256 chainId, address verifyingContract, bytes32 salt, uint256[] extensions)
+function fundingPaused() view returns (bool)
+function locked(address) view returns (uint256)
+function nonces(address) view returns (uint256)
+function owner() view returns (address)
+function pendingOwner() view returns (address)
+function refund(bytes32 depositId)
+function renounceOwnership()
+function setFundingPaused(bool paused)
+function setTokenAllowed(address token, bool allowed)
+function transferOwnership(address newOwner)
+function treasury() view returns (address)
+```
+
+### event
+
+```text
+event ClaimVaultClaimed(bytes32 indexed depositId, address indexed recipient, uint256 amount)
+event ClaimVaultDeposited(bytes32 indexed depositId, address indexed sender, address indexed token, address claimSigner, uint256 grossAmount, uint256 feeAmount, uint256 netAmount, uint256 expiresAt)
+event ClaimVaultRefunded(bytes32 indexed depositId, address indexed sender, uint256 amount)
+event EIP712DomainChanged()
+event FundingPauseChanged(bool paused)
+event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner)
+event OwnershipTransferred(address indexed previousOwner, address indexed newOwner)
+event TokenAdmissionChanged(address indexed token, bool allowed)
+```
+
+### error
+
+```text
+error ClaimExpired()
+error ECDSAInvalidSignature()
+error ECDSAInvalidSignatureLength(uint256 length)
+error ECDSAInvalidSignatureS(bytes32 s)
+error FundingPaused()
+error InexactTransfer()
+error InvalidAddress()
+error InvalidAmount()
+error InvalidAuthorization()
+error InvalidShortString()
+error NotActive()
+error NotSender()
+error OwnableInvalidOwner(address owner)
+error OwnableUnauthorizedAccount(address account)
+error ReentrancyGuardReentrantCall()
+error RefundNotAvailable()
+error SafeERC20FailedOperation(address token)
+error StringTooLong(string str)
+error UnsupportedToken()
+```
+
