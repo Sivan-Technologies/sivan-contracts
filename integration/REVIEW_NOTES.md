@@ -161,3 +161,43 @@ Validation: the five-target matrix passed 140 cases (32 each Celo/Base/Arbitrum,
 tests. The matrix exposed a test-only hardcoded 31337 in the signing-helper digest
 assertion; it now reads the active chain ID. No contract/helper signature rules
 were weakened. Compile and integration drift checks passed; ABI remains unchanged.
+
+## 2026-10-11 — Confirmation policy and invariant remediation
+
+Deploy/recover/verify now share a minimum-two-confirmation readback policy,
+canonical-block validation and receipt recheck. Verification checks again after
+the explorer operation; activation stays false. The audit reproduction now
+asserts rejection of one confirmation, noncanonical and disappearing receipts,
+and acceptance at two, in all five local profiles. This changes release evidence,
+not claim fees, signatures, contract states, ABI or existing deployed escrow.
+
+Milestone invariant handlers now check state/deadlines before selecting actions,
+count successful settlement routes and reconcile those counters against terminal
+milestones. Added deterministic successful lifecycle coverage and route-directed
+fuzzing. Unexpected invariant-handler reverts now fail the entire Foundry suite.
+Skipped ineligible actions remain explicit; zero reverts is not a claim that
+every random call transferred funds. Production milestone code is untouched.
+
+The elliptic risk assessment records the actual dependency graph, unresolved
+advisory, owner-signoff requirement and review date. An isolated CI signing probe
+rejects elliptic loading while exercising direct ethers-v6 message, claim typed
+data and transaction signing. Dependencies were not forcibly upgraded and audit
+thresholds were not lowered. Production acceptance is not implied.
+
+Public-testnet execution is blocked by missing claim-specific deployer, admin,
+treasury and token configuration for Celo/Base/Arbitrum. Their RPC URLs are
+present. Arc/BNB also lack configured RPCs; their gates remain pending. No
+fallback to generic or production wallets was attempted; no public transactions
+were submitted. All environment inspection reported presence only, not values.
+
+Read-only RPC checks on 2026-10-11 passed for Celo Sepolia (block 38415265),
+Base Sepolia (47965483) and Arbitrum Sepolia (317985508), with the expected chain
+IDs and fresh blocks. These checks loaded no signer and do not certify token,
+contract or application compatibility. The five-profile matrix passed 145 cases,
+the existing Hardhat suite passed 298, and the isolated signing probe passed.
+The npm moderate gate passed while continuing to report 15 low advisory entries.
+The full Foundry run passed 36 tests across 9 suites with fail-on-revert enabled.
+Milestone accounting completed 256 sequences / 12,800 handler calls with zero
+reverts, and route-directed fuzzing completed 512 successful settlement cases.
+Ineligible random actions can still be skipped; successful counters reconcile
+against terminal states and deterministic tests require each main payout route.

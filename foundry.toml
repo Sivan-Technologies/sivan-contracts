@@ -24,4 +24,5 @@ runs = 512
 # run; more depth finds multi-step bugs that single-call fuzzing cannot.
 runs = 256
 depth = 50
-fail_on_revert = false
+# Handlers select valid transitions; unexpected reverts must fail the run.
+fail_on_revert = true

@@ -99,6 +99,11 @@ transaction. A successful deployment waits two confirmations and records receipt
 block/hash, runtime hash and owner/treasury/fee/window/token readbacks.
 Two confirmations are evidence, not a universal finality guarantee. Receipt
 waiting times out after three minutes; use recovery rather than resubmission.
+Deploy, recover and verify share the same minimum-two-confirmation readback
+policy. A receipt below that threshold is pending, not accepted. Readback also
+checks the canonical block hash and rechecks that the receipt did not disappear
+or change during state inspection. Verification repeats readback after explorer
+submission. Evidence records minimum and observed confirmation counts.
 
 After timeout or interruption, do not delete the record, change version or retry
 deployment blindly. Restore the original config/build and use:

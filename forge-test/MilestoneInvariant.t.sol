@@ -13,26 +13,62 @@ contract MilestoneSequenceHandler is Test {
     address public constant CONTRACTOR=address(0xC001);
     address public constant PRIMARY=address(0xA001);
     address public constant INDEPENDENT=address(0xA002);
+    uint256 public delivered;
+    uint256 public released;
+    uint256 public refunded;
+    uint256 public disputed;
+    uint256 public overdueRequested;
+    uint256 public escalated;
+    uint256 public primaryResolved;
+    uint256 public independentResolved;
+    uint256 public skipped;
     constructor(SivanMilestoneVault v,bytes32 project) { vault=v; id=project; }
     function advance(uint32 seconds_) external { vm.warp(block.timestamp+bound(seconds_,1,10 days)); }
-    function pauseFunding(bool paused) external { vm.prank(address(0xA110)); vault.setFundingPaused(paused); }
-    function deliver(uint8 index) external {
-        vm.prank(CONTRACTOR); vault.markDelivered(id,index%3,keccak256("proof"));
+    function pauseFunding(bool paused) external {
+        if (vault.fundingPaused()==paused) { ++skipped; return; }
+        vm.prank(address(0xA110)); vault.setFundingPaused(paused);
     }
-    function release(uint8 index) external { vm.prank(BUYER); vault.releaseMilestone(id,index%3); }
-    function refund(uint8 index) external { vm.prank(BUYER); vault.refundUndelivered(id,index%3); }
+    function deliver(uint8 index) external {
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,index%3);
+        if(m.state!=SivanMilestoneVault.State.Funded || block.timestamp>vault.getProject(id).fundedAt+m.duration) { ++skipped; return; }
+        vm.prank(CONTRACTOR); vault.markDelivered(id,index%3,keccak256("proof"));
+        ++delivered;
+    }
+    function release(uint8 index) external {
+        if(vault.getMilestone(id,index%3).state!=SivanMilestoneVault.State.Delivered) { ++skipped; return; }
+        vm.prank(BUYER); vault.releaseMilestone(id,index%3); ++released;
+    }
+    function refund(uint8 index) external {
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,index%3);
+        if(m.state!=SivanMilestoneVault.State.Funded || block.timestamp<=vault.getProject(id).fundedAt+m.duration+vault.DISPUTE_GRACE()) { ++skipped; return; }
+        vm.prank(BUYER); vault.refundUndelivered(id,index%3); ++refunded;
+    }
     function dispute(uint8 index,bool buyer) external {
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,index%3);
+        if(m.state!=SivanMilestoneVault.State.Funded && m.state!=SivanMilestoneVault.State.Delivered) { ++skipped; return; }
+        if(m.state==SivanMilestoneVault.State.Funded && block.timestamp>vault.getProject(id).fundedAt+m.duration+vault.DISPUTE_GRACE()) { ++skipped; return; }
         vm.prank(buyer?BUYER:CONTRACTOR); vault.disputeMilestone(id,index%3);
+        ++disputed;
     }
     function overdue(uint8 index) external {
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,index%3);
+        if(m.state!=SivanMilestoneVault.State.Delivered || block.timestamp<=m.deliveredAt+vault.getProject(id).reviewWindow) { ++skipped; return; }
         vm.prank(index % 2 == 0 ? BUYER : CONTRACTOR);
         vault.requestOverdueReview(id,index%3);
+        ++overdueRequested;
     }
-    function escalate(uint8 index) external { vault.escalateMilestone(id,index%3); }
+    function escalate(uint8 index) external {
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,index%3);
+        if(m.state!=SivanMilestoneVault.State.Disputed || m.escalated || block.timestamp<=m.reviewDeadline) { ++skipped; return; }
+        vault.escalateMilestone(id,index%3); ++escalated;
+    }
     function resolve(uint8 index,uint96 refund_,bool independent) external {
         uint256 i=index%3;
+        SivanMilestoneVault.Milestone memory m=vault.getMilestone(id,i);
+        if(m.state!=SivanMilestoneVault.State.Disputed || independent!=m.escalated || (!independent && block.timestamp>m.reviewDeadline)) { ++skipped; return; }
         uint256 refundAmount=bound(refund_,0,vault.getMilestone(id,i).amount);
         vm.prank(independent?INDEPENDENT:PRIMARY); vault.resolveMilestone(id,i,refundAmount);
+        if(independent) ++independentResolved; else ++primaryResolved;
     }
 }
 
@@ -83,5 +119,40 @@ contract MilestoneInvariantTest is StdInvariant,Test {
         assertEq(vault.getProject(id).remaining,remaining);
         assertEq(balance+token.balanceOf(BUYER)+token.balanceOf(CONTRACTOR)+token.balanceOf(TREASURY),TOTAL);
         assertLe(token.balanceOf(TREASURY),5e6);
+        uint256 settled;
+        for(uint256 i;i<3;++i) if(vault.getMilestone(id,i).nonce==1) ++settled;
+        assertEq(settled,handler.released()+handler.refunded()+handler.primaryResolved()+handler.independentResolved());
+    }
+
+    function test_successfulDeliveryReleaseAndPrimaryRuling() public {
+        handler.deliver(0); handler.release(0);
+        handler.dispute(1,true); handler.resolve(1,100e6,false);
+        assertEq(handler.delivered(),1); assertEq(handler.released(),1);
+        assertEq(handler.disputed(),1); assertEq(handler.primaryResolved(),1);
+        invariant_allFundsConservedAndLiabilitiesBacked();
+    }
+    function test_successfulOverdueEscalationIndependentRulingAndRefund() public {
+        handler.deliver(0);
+        handler.advance(uint32(1 days+1)); handler.overdue(0);
+        handler.advance(uint32(1 days+1)); handler.escalate(0);
+        handler.resolve(0,50e6,true);
+        handler.advance(uint32(10 days)); handler.refund(1); handler.refund(2);
+        assertEq(handler.overdueRequested(),1); assertEq(handler.escalated(),1);
+        assertEq(handler.independentResolved(),1); assertEq(handler.refunded(),2);
+        invariant_allFundsConservedAndLiabilitiesBacked();
+    }
+    function testFuzz_successfulSettlementRoutes(uint8 route,uint96 refund_) public {
+        uint256 choice=route%5;
+        if(choice==0) { handler.deliver(0); handler.release(0); assertEq(handler.released(),1); }
+        else if(choice==1) { handler.advance(uint32(10 days)); handler.refund(0); assertEq(handler.refunded(),1); }
+        else {
+            if(choice==4) { handler.deliver(0); handler.advance(uint32(1 days+1)); handler.overdue(0); }
+            else handler.dispute(0,true);
+            if(choice>=3) { handler.advance(uint32(1 days+1)); handler.escalate(0); }
+            handler.resolve(0,refund_,choice>=3);
+            assertEq(handler.primaryResolved()+handler.independentResolved(),1);
+        }
+        assertEq(vault.getMilestone(id,0).nonce,1);
+        invariant_allFundsConservedAndLiabilitiesBacked();
     }
 }

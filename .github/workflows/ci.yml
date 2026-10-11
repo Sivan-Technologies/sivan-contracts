@@ -52,6 +52,9 @@ jobs:
         # Low legacy elliptic advisory remains documented, not suppressed.
         run: npm audit --audit-level=moderate
 
+      - name: Isolated signing dependency check
+        run: npm run security:signing-dependency
+
   foundry:
     name: Fuzz and invariants
     runs-on: ubuntu-latest

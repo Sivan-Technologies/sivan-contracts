@@ -1,6 +1,11 @@
 # Claim Vault security and local E2E review — 2026-10-11
 
 Release reviewed: `b57d3f84665c42c89f0099923148bc1b77816a9d` on `main`.
+Follow-up: the recovery-confirmation issue below was subsequently remediated;
+see the 2026-10-11 remediation entry in `integration/REVIEW_NOTES.md` and
+`docs/ELLIPTIC_RISK_ASSESSMENT.md`. The original findings/evidence below describe
+the reviewed commit, not an assertion that every finding remains open. The audit
+test has since been converted into an enforcement regression and added to CI.
 This is an engineering security review by the implementation assistant, **not an
 independent third-party audit or production certification**. No public deployment,
 wallet transfer, issuer-token transaction or live application operation was made.

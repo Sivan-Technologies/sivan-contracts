@@ -20,6 +20,7 @@
     "milestone:deploy": "node scripts/milestone-evm.js deploy",
     "claim:challenge": "node scripts/claim-evm.js challenge",
     "claim:list": "node scripts/claim-evm.js list",
+    "security:signing-dependency": "node scripts/check-signing-dependency.js",
     "claim:test-matrix": "node scripts/claim-test-matrix.js",
     "claim:preflight": "node scripts/claim-evm.js preflight",
     "claim:deploy": "node scripts/claim-evm.js deploy",
