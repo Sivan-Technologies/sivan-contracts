@@ -51,6 +51,7 @@ async function main() {
       Object.assign(record, checks, { phase: "deployed-readback", readyForUse: false });
       if (action === "verify") {
         await hre.run("verify:verify", { address: record.vault, constructorArguments: record.constructorArguments, contract: FQN });
+        Object.assign(record, await readback(provider, record));
         record.sourceVerification = "verified";
       }
       save(record);

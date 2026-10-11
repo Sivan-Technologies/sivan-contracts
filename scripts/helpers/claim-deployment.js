@@ -3,6 +3,7 @@ const { assertDeployable, DeploymentError } = require("../../config/evm-networks
 const { walletPolicy, checkWallet } = require("./control-wallets");
 
 const FQN = "contracts/SivanClaimVault.sol:SivanClaimVault";
+const MIN_CONFIRMATIONS = 2;
 const ACK = "bearer-key-seven-day-net-refund-nonrefundable-fee";
 function guard(network, profile) {
   if (profile !== "testnet") throw new DeploymentError("Claim deployment requires the testnet profile");
@@ -88,6 +89,12 @@ async function readback(provider, record) {
   const receipt = await provider.getTransactionReceipt(record.deployTx);
   if (!receipt || receipt.status !== 1 || receipt.contractAddress?.toLowerCase() !== record.vault.toLowerCase())
     throw new DeploymentError("Claim deployment receipt unavailable or invalid; reconcile before retrying");
+  const latest = Number(BigInt(await provider.send("eth_blockNumber", [])));
+  if (latest - receipt.blockNumber + 1 < MIN_CONFIRMATIONS)
+    throw new DeploymentError("Claim deployment pending confirmations; retry read-only recovery later");
+  const canonical = await provider.getBlock(receipt.blockNumber);
+  if (!canonical || canonical.hash !== receipt.blockHash)
+    throw new DeploymentError("Claim deployment receipt is not canonical; reconcile before retrying");
   const vault = new ethers.Contract(record.vault, record.abi, provider), options = { blockTag: receipt.blockNumber };
   if (await vault.owner(options) !== record.config.admin || await vault.treasury(options) !== record.config.treasury ||
       await vault.pendingOwner(options) !== ethers.ZeroAddress || await vault.fundingPaused(options) ||
@@ -96,7 +103,12 @@ async function readback(provider, record) {
   for (const token of record.config.tokens) if (!await vault.allowedTokens(token.address, options)) throw new DeploymentError("Claim allowlist readback failed");
   const code = await provider.getCode(record.vault, receipt.blockNumber);
   if (code === "0x") throw new DeploymentError("Claim deployed code missing");
-  return { deployBlock: receipt.blockNumber, deployBlockHash: receipt.blockHash, runtimeHash: ethers.keccak256(code) };
+  const checkedReceipt = await provider.getTransactionReceipt(record.deployTx);
+  if (!checkedReceipt || checkedReceipt.blockHash !== receipt.blockHash || checkedReceipt.status !== 1)
+    throw new DeploymentError("Claim deployment receipt changed during readback");
+  return { deployBlock: receipt.blockNumber, deployBlockHash: receipt.blockHash,
+    minimumConfirmations: MIN_CONFIRMATIONS, observedConfirmations: latest - receipt.blockNumber + 1,
+    runtimeHash: ethers.keccak256(code) };
 }
 async function deploy({ network, config, signer, artifact, build, record, save, confirmation }) {
   requireConfirmation(network, config, artifact, confirmation);
@@ -113,8 +125,8 @@ async function deploy({ network, config, signer, artifact, build, record, save, 
   record.nonce = nonce; record.deployTx = ethers.keccak256(signed); record.phase = "broadcast-intent";
   await save(record);
   const response = await signer.provider.broadcastTransaction(signed);
-  await response.wait(2, 180000);
+  await response.wait(MIN_CONFIRMATIONS, 180000);
   Object.assign(record, await readback(signer.provider, record), { phase: "deployed-readback", sourceVerification: "pending", readyForUse: false });
   await save(record);
 }
-module.exports = { FQN, ACK, guard, configuration, constructorArgs, challenge, requireConfirmation, preflight, readback, deploy };
+module.exports = { FQN, ACK, MIN_CONFIRMATIONS, guard, configuration, constructorArgs, challenge, requireConfirmation, preflight, readback, deploy };
