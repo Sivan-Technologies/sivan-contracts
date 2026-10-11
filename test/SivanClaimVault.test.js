@@ -211,7 +211,7 @@ describe('SivanClaimVault — isolated claim-link lifecycle', function () {
   it('signing helper matches the on-chain EIP-712 digest', async () => {
     const { claimAuthorization } = require('../scripts/helpers/claim-authorization');
     const { id, item } = await deposit();
-    const auth = claimAuthorization({ chainId: 31337, vault: vault.target,
+    const auth = claimAuthorization({ chainId: (await ethers.provider.getNetwork()).chainId, vault: vault.target,
       depositId: id, recipient: recipient.address, deadline: item.expiresAt });
     expect(ethers.TypedDataEncoder.hash(auth.domain, auth.types, auth.value))
       .to.equal(await vault.claimDigest(id, recipient.address, item.expiresAt));

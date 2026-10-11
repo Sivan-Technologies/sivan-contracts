@@ -106,3 +106,58 @@ reconciliation, independent review and production release approval.
 
 For subsequent entries record date, changed surfaces, frontend/adapter impact,
 test commands/results and unresolved issues before refreshing the baseline.
+
+## 2026-10-11 — Claim testnet deployment tooling
+
+Added isolated claim challenge/preflight/deploy/recover/verify commands and an
+environment example. Candidate testnets only; actual chain ID, dedicated roles, token
+metadata/runtime identity, gas reserve, clean release and exact confirmation are
+checked. Optional multisig mode reuses reviewed 2-of-3 control-wallet checks.
+The journal saves transaction identity before broadcast and keeps activation
+false. Recovery reads receipts; it never retries deployment automatically.
+
+No Solidity, ABI, fee, deadline, signature or existing deployment behavior changed.
+Single/milestone adapters and old immutable deployments remain unaffected. Claim
+applications must still use a separately approved catalog, not infer activation
+from a deployment or explorer verification. Token proxy implementation and issuer
+behavior need independent review beyond metadata/code checks.
+
+Evidence: `npm run claim:test-deployment` passed all 10 ephemeral-chain cases,
+including pre-broadcast journal failure and signed deployment/readback/recovery.
+`npm test -- --network hardhat --no-compile` passed all 298 existing tests.
+`npm run release:reproducible` completed two forced builds: both single-vault
+and claim-vault creation/runtime/ABI fingerprints matched.
+The compiler reported nothing to compile; integration drift checking passed
+with no generated ABI changes. See the deployment guide for evidence limits.
+Public deployment, explorer verification and application E2E remain unexecuted.
+
+### EVM network extension
+
+Claim tooling now consumes the shared registry rather than a Celo-only guard.
+Celo Sepolia, Base Sepolia and Arbitrum Sepolia retain candidate status. BNB,
+Polygon, Arc, Ethereum, Optimism and placeholder networks remain pending; no
+mainnet or pending gate was bypassed. Added per-network environment templates,
+a list command and separate ephemeral deployment tests for candidate chain IDs.
+No contracts or ABIs changed. Deposit discovery and signature domains remain
+chain/address-scoped: this is not a cross-chain transfer or migration feature.
+Public network compatibility and real-token settlement remain unverified.
+Validation: `npm run claim:test-matrix` passed 30 cases (10 each on ephemeral
+Celo/Base/Arbitrum chain-ID profiles). `claim:list`, compile and integration drift
+checks passed. This matrix uses local fixtures, not the three public networks.
+
+### Five-target claim lifecycle coverage
+
+Requested rollout scope now explicitly includes Celo, Base, Arbitrum, Arc and
+BNB Smart Chain (BEP-20). Added an isolated local-chain configuration for all five
+and run the complete claim lifecycle/adversarial suite on each. Candidate
+deployment tests remain limited to the existing three candidates. Public Arc/BNB
+gates and all mainnets remain blocked and are regression-tested as such. No
+Solidity, ABI, fee, consent or existing adapter/deployment behavior changed.
+Local execution at the selected chain IDs is not proof of the networks' EVM/gas
+behavior or real-token settlement. Public RPC/testnet verification remains open.
+
+Validation: the five-target matrix passed 140 cases (32 each Celo/Base/Arbitrum,
+22 each Arc/BNB). The unchanged default Hardhat profile also passed all 20 claim
+tests. The matrix exposed a test-only hardcoded 31337 in the signing-helper digest
+assertion; it now reads the active chain ID. No contract/helper signature rules
+were weakened. Compile and integration drift checks passed; ABI remains unchanged.

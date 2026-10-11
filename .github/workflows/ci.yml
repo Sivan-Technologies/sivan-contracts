@@ -45,6 +45,9 @@ jobs:
       - name: Test
         run: npx hardhat test
 
+      - name: Claim testnet tooling (ephemeral chain only)
+        run: npm run claim:test-matrix
+
       - name: Dependency advisory gate
         # Low legacy elliptic advisory remains documented, not suppressed.
         run: npm audit --audit-level=moderate

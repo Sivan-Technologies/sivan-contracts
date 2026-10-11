@@ -29,6 +29,7 @@ function snapshot() {
     ...filesUnder('config'), 'hardhat.config.cjs','package.json','package-lock.json',
     '.github/workflows/ci.yml','AGENTS.md',
     'integration/README.md','integration/REVIEW_NOTES.md','integration/CLAIM_VAULT.md',
+    'docs/CLAIM_TESTNET_DEPLOYMENT.md', '.env.claim.example', '.env.claim-networks.example',
   ].sort();
   return {schemaVersion:1, files:Object.fromEntries(files.map(f=>[f,digest(fs.readFileSync(path.join(ROOT,f)))]))};
 }

@@ -139,7 +139,10 @@ not endpoints implemented by this change:
 CREATE2 is not implemented or required. Each chain may have a different address.
 EVM source compatibility does not prove every chain supports the compiler's
 Cancun target or each token's behavior. Validate candidate networks independently.
-Public-network deployment tooling is deliberately not enabled for this new vault.
+Protected candidate-EVM-testnet tooling is documented in
+[Claim testnet deployment](../docs/CLAIM_TESTNET_DEPLOYMENT.md). Mainnet and
+pending networks remain blocked; tooling availability is not evidence of public deployment.
+Records remain `readyForUse: false` until a separately approved application rollout.
 
 ## Local verification commands
 
