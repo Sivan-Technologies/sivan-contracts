@@ -18,7 +18,7 @@
     "hardhat.config.cjs": "f48e024448b33c6feba6772149c9f45ccf9b9d2ece95a4ac168f4dd9f317bfee",
     "integration/CLAIM_VAULT.md": "d0a3ed89dc9c875d051302d9bd723c1695799d3b37f62fb8f438817679b4f34c",
     "integration/README.md": "da4d1f0bc407107dd37e77e883f0e6fca3a298989188aa683b6a45be67532ea8",
-    "integration/REVIEW_NOTES.md": "f917f81e74c1086520ee6f5233f2bebc323b02bc19e9038cec18b8433e6ede81",
+    "integration/REVIEW_NOTES.md": "975e0d78f97fa2ce26376985e5ff4b60a758b3dda222c5d9fc2e38ae93b7d7f4",
     "package-lock.json": "91aa30b09c809320c36aad85b7c3d6318a4d1e96a9bc6a803cf5ea11dce7cb0a",
     "package.json": "d5f54cff2eaa453a743340ab79acee3ca95ceecd47f8223fa4ba476f29680a05",
     "scripts/check-attester.js": "733c015657a8591dede1d041265e028fc9d2ce0b4e24aabad5a361dafae7ed65",

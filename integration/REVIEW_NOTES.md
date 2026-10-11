@@ -201,3 +201,19 @@ Milestone accounting completed 256 sequences / 12,800 handler calls with zero
 reverts, and route-directed fuzzing completed 512 successful settlement cases.
 Ineligible random actions can still be skipped; successful counters reconcile
 against terminal states and deterministic tests require each main payout route.
+
+## 2026-10-11 — Claim token verification follow-up
+
+Re-ran the five-profile Claim Vault matrix: 145 local cases passed. The isolated
+local deployment/approval/funding/claim/expired-refund lifecycle passed with
+exact fee and balance checks. Read-only public RPC metadata and constructor
+simulations passed for USDC on all five targets and BNB test USDT. BNB token
+identities now have a BNB-maintained source; see
+`docs/TESTNET_SETTLEMENT_TOKENS.md` for addresses, blocks and evidence limits.
+
+No Solidity, ABI, signing schema, fee, deadline, deployment gate or adapter
+meaning changed. Existing deployments are unaffected. Test token identity and
+constructor simulations do not establish public settlement support. All five
+claim-specific signing/role/token configurations are missing; four non-BNB USDT
+testnet identities remain unverified. No public transactions were submitted,
+and no live product, keys or balances were modified.
