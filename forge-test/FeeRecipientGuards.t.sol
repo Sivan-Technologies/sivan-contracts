@@ -75,7 +75,7 @@ contract FeeRecipientGuardsTest is Test {
     function execute(uint8 route, uint256 refund, uint256 expiry, bytes memory b, bytes memory c) external {
         if (route == 0) {
             vm.prank(buyer);
-            vault.releasePayment(ID, "", "", 0);
+            vault.releasePayment(ID, "", "", 0, 0);
         } else if (route == 1) {
             vault.resolveDispute(ID, true, "Primary ruling");
         } else if (route == 2) {

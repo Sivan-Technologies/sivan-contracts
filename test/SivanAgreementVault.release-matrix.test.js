@@ -32,6 +32,7 @@ describe("SivanAgreementVault · release matrix", function () {
       { name: "contractor", type: "address" },
       { name: "netAmount", type: "uint256" },
       { name: "nonce", type: "uint256" },
+      { name: "issuedAt", type: "uint256" },
       { name: "expiry", type: "uint256" },
     ],
   };
@@ -79,9 +80,9 @@ describe("SivanAgreementVault · release matrix", function () {
       timestamp: ts,
     });
 
-  const buyerSig = (domain, signer, id, contractor, netAmount, nonce, expiry) =>
+  const buyerSig = (domain, signer, id, contractor, netAmount, nonce, issuedAt, expiry) =>
     signer.signTypedData(domain, RELEASE_TYPES, {
-      agreementId: id, contractor, netAmount, nonce, expiry,
+      agreementId: id, contractor, netAmount, nonce, issuedAt, expiry,
     });
 
   const now = async () => (await ethers.provider.getBlock("latest")).timestamp;
@@ -95,7 +96,7 @@ describe("SivanAgreementVault · release matrix", function () {
 
     const before = await usdc.balanceOf(contractor.address);
     await expect(
-      vault.connect(buyer).releasePayment(id, "0x", "0x", 0)
+      vault.connect(buyer).releasePayment(id, "0x", "0x", 0, 0)
     ).to.not.be.reverted;
     expect(await usdc.balanceOf(contractor.address)).to.equal(before + agr.netAmount);
   });
@@ -105,7 +106,7 @@ describe("SivanAgreementVault · release matrix", function () {
     const id = ID("buyer-funded-event");
     await fund(vault, usdc, buyer, contractor, id);
 
-    await expect(vault.connect(buyer).releasePayment(id, "0x", "0x", 0))
+    await expect(vault.connect(buyer).releasePayment(id, "0x", "0x", 0, 0))
       .to.emit(vault, "AgreementReleased")
       .withArgs(id, buyer.address, contractor.address,
         (v) => v > 0n, (v) => v >= 0n, 0n, false, 0n); // 0 = BuyerAuthorised
@@ -121,7 +122,7 @@ describe("SivanAgreementVault · release matrix", function () {
 
     // The deliverable exists, so the attestation is now load bearing.
     await expect(
-      vault.connect(buyer).releasePayment(id, "0x", "0x", 0)
+      vault.connect(buyer).releasePayment(id, "0x", "0x", 0, 0)
     ).to.be.revertedWith("Invalid agent attestation length");
   });
 
@@ -134,7 +135,7 @@ describe("SivanAgreementVault · release matrix", function () {
 
     await expect(
       vault.connect(buyer).releasePayment(
-        id, "0x", await agentSig(domain, owner, id, "ipfs://proof", agr.deadlineTimestamp), 0)
+        id, "0x", await agentSig(domain, owner, id, "ipfs://proof", agr.deadlineTimestamp), 0, 0)
     ).to.emit(vault, "AgreementReleased")
       .withArgs(id, buyer.address, contractor.address,
         (v) => v > 0n, (v) => v >= 0n, 0n, true, 0n); // 0 = BuyerAuthorised
@@ -149,7 +150,7 @@ describe("SivanAgreementVault · release matrix", function () {
 
     await expect(
       vault.connect(buyer).releasePayment(
-        id, "0x", await agentSig(domain, owner, id, "ipfs://forged", agr.deadlineTimestamp), 0)
+        id, "0x", await agentSig(domain, owner, id, "ipfs://forged", agr.deadlineTimestamp), 0, 0)
     ).to.be.revertedWith("Invalid Sivan AI agent attestation");
   });
 
@@ -159,15 +160,16 @@ describe("SivanAgreementVault · release matrix", function () {
     const { vault, usdc, domain, buyer, contractor, relayer } = await setup();
     const id = ID("relay-funded");
     const agr = await fund(vault, usdc, buyer, contractor, id);
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
 
     const sig = await buyerSig(domain, buyer, id, contractor.address, agr.netAmount,
-      await vault.agreementNonces(id), expiry);
+      await vault.agreementNonces(id), issuedAt, expiry);
 
     // No agent signature. The buyer's own authorization is the authority here,
     // and it pins the exact contractor and amount.
     await expect(
-      vault.connect(relayer).releasePayment(id, sig, "0x", expiry)
+      vault.connect(relayer).releasePayment(id, sig, "0x", issuedAt, expiry)
     ).to.not.be.reverted;
   });
 
@@ -179,19 +181,20 @@ describe("SivanAgreementVault · release matrix", function () {
     await fund(vault, usdc, buyer, contractor, id);
     await vault.connect(contractor).markDelivered(id, "ipfs://proof");
     const agr = await vault.getAgreement(id);
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
 
     const sig = await buyerSig(domain, buyer, id, contractor.address, agr.netAmount,
-      await vault.agreementNonces(id), expiry);
+      await vault.agreementNonces(id), issuedAt, expiry);
 
     // Buyer signature alone is no longer enough once delivery is recorded.
     await expect(
-      vault.connect(relayer).releasePayment(id, sig, "0x", expiry)
+      vault.connect(relayer).releasePayment(id, sig, "0x", issuedAt, expiry)
     ).to.be.revertedWith("Invalid agent attestation length");
 
     await expect(
       vault.connect(relayer).releasePayment(
-        id, sig, await agentSig(domain, owner, id, "ipfs://proof", agr.deadlineTimestamp), expiry)
+        id, sig, await agentSig(domain, owner, id, "ipfs://proof", agr.deadlineTimestamp), issuedAt, expiry)
     ).to.not.be.reverted;
   });
 
@@ -205,7 +208,7 @@ describe("SivanAgreementVault · release matrix", function () {
     // The contractor never calls markDelivered. Both parties agree the work is
     // done. Requiring Delivered first would trap the money here permanently.
     const before = await usdc.balanceOf(contractor.address);
-    await vault.connect(buyer).releasePayment(id, "0x", "0x", 0);
+    await vault.connect(buyer).releasePayment(id, "0x", "0x", 0, 0);
     expect(await usdc.balanceOf(contractor.address)).to.equal(
       before + agr.netAmount,
       "a silent contractor prevented their own payment"

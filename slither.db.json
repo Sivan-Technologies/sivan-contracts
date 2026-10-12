@@ -1,10 +1,10 @@
 [
   {
-    "id": "9da25aff097a817fa3ef9a335f7dff19bcdf53245f81fd7183e252f92395a0d5",
+    "id": "3337e56fb07f366d482b29df7701f6f304679a24bfcfa70452df5bfb1d153f7a",
     "check": "incorrect-equality",
     "description": "Internal triage: enum state equality in acceptArbitrationTerms, not equality on an externally manipulable balance or timestamp.",
     "reason": "AgreementState.Uninitialized is a discrete lifecycle value. Accepting only this state prevents rewriting consent after funding. Timestamp-based expiry is checked separately with a range comparison. No balance or clock equality controls this guard.",
-    "reviewedAt": "2026-09-29",
-    "reviewScope": "Rechecked the unchanged enum-state guard after source offsets moved in the refund-consent fix; refreshed only this exact finding ID. Internal review, not independent audit approval"
+    "reviewedAt": "2026-10-12",
+    "reviewScope": "Rechecked the unchanged enum-state guard at line 253 after the issuedAt schema change shifted source offsets. Clean-build analysis reports only this medium finding; refreshed this exact ID without weakening detector gates. Internal review, not independent audit approval"
   }
 ]

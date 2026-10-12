@@ -8,6 +8,8 @@ const { preflight, deployAndSeed } = require("../scripts/helpers/evm-deployment"
 const { getNetwork } = require("../config/evm-networks.cjs");
 
 describe("Deployment-to-settlement review (local test tokens only)", () => {
+  beforeEach(async () => { await ethers.provider.send("evm_setIntervalMining", [100]); });
+  afterEach(async () => { await ethers.provider.send("evm_setIntervalMining", [0]); });
   for (const route of ["delivered", "refund", "primary", "independent", "bilateral"]) {
     it(`verifies journal, funding and exact payout through ${route}`, async () => {
       const [owner,buyer,contractor,collector,agent,partner,,,,independent] = await ethers.getSigners();
@@ -32,7 +34,7 @@ describe("Deployment-to-settlement review (local test tokens only)", () => {
         await vault.connect(contractor).markDelivered(id,"review-proof");
         const signature=await agent.signTypedData(domain,{AgentAttestation:[{name:"agreementId",type:"bytes32"},{name:"agentId",type:"uint256"},{name:"deliverableHash",type:"bytes32"},{name:"timestamp",type:"uint256"}]},
           {agreementId:id,agentId:1,deliverableHash:ethers.keccak256(ethers.toUtf8Bytes("review-proof")),timestamp:a.deadlineTimestamp});
-        await vault.connect(buyer).releasePayment(id,"0x",signature,0);
+        await vault.connect(buyer).releasePayment(id,"0x",signature, 0,0);
       } else if(route==="refund") {
         await ethers.provider.send("evm_setNextBlockTimestamp",[Number(a.refundUnlockAt)+1]);
         await vault.connect(buyer).refundBuyer(id);
@@ -67,7 +69,7 @@ describe("Deployment-to-settlement review (local test tokens only)", () => {
       expect(await token.balanceOf(partner.address)).to.equal(partnerFee);
       expect(await token.balanceOf(record.vault)).to.equal(0);
       expect((await vault.getAgreement(id)).state).to.equal(refund===amount?4:3);
-      await expect(vault.connect(buyer).releasePayment(id,"0x","0x",0)).to.be.reverted;
+      await expect(vault.connect(buyer).releasePayment(id,"0x","0x", 0,0)).to.be.reverted;
     });
   }
 });

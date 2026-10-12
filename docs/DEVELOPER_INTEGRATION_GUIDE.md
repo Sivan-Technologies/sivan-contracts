@@ -70,8 +70,14 @@ The buyer signs an EIP-712 release authorization. Sivan AI Agent #9827 signs the
 await vaultContract.releasePayment(
   agreementId,
   buyerSignature,
-  agentAttestation
+  agentAttestation,
+  issuedAt, // signed current-chain timestamp; zero for direct buyer release
+  expiry    // signed expiry at most 86400 seconds after issuedAt; zero for direct buyer
 );
+
+Use the exact current EIP-712 schema and deployment-specific adapter described
+in `integration/README.md` section 10. Old expiry-only signatures do not work on
+new issuance-bound vaults; existing immutable deployments keep their own ABIs.
 
 The contractor receives 99% net funds, Sivan receives 70% of the platform fee, and your partnerAddress receives 30% of the platform fee automatically on-chain.
 

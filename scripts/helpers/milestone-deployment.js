@@ -1,4 +1,5 @@
 const { ethers } = require("ethers");
+const { waitForConfirmedReceipt, assertConfirmedReceipt } = require("./confirmations");
 const { assertDeployable, DeploymentError } = require("../../config/evm-networks.cjs");
 const { walletPolicy, checkWallet } = require("./control-wallets");
 const ACK = "funding-pause-bilateral-reviewer-recovery";
@@ -107,7 +108,7 @@ async function deploy({network,config,signer,artifact,build,record,save}) {
   await save(record);
   const vault=await new ethers.ContractFactory(artifact.abi,artifact.bytecode,signer).deploy(...constructorArgs(config),{nonce:record.nonce});
   record.deployTx=vault.deploymentTransaction().hash; await save(record);
-  const receipt=await vault.deploymentTransaction().wait();
+  const receipt=await waitForConfirmedReceipt(provider,vault.deploymentTransaction());
   if(!receipt || receipt.status!==1) throw new DeploymentError("Milestone deployment receipt failed");
   record.deployBlock=receipt.blockNumber;record.phase="deployed-awaiting-readback";await save(record);
   const options={blockTag:receipt.blockNumber};
@@ -116,6 +117,7 @@ async function deploy({network,config,signer,artifact,build,record,save}) {
     await vault.fundingPaused(options) || await vault.feeBps(options)!==BigInt(config.feeBps)) throw new DeploymentError("Milestone role readback failed");
   for(const t of config.tokens) if(!await vault.supportedToken(t.address,options)) throw new DeploymentError("Milestone allowlist readback failed");
   record.runtimeHash=ethers.keccak256(await provider.getCode(record.vault,receipt.blockNumber));
+  record.deploymentConfirmation=await assertConfirmedReceipt(provider,receipt);
   record.phase="deployed-verified-readback";record.sourceVerification="pending";record.readyForUse=false;
   await save(record);return vault;
 }

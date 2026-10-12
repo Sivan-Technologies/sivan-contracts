@@ -6,6 +6,8 @@ const {getNetwork}=require("../config/evm-networks.cjs");
 const {configuration,challenge,verifyProof,preflight,deploy,FQN,ACK}=require("../scripts/helpers/milestone-deployment");
 const {requireConfirmation}=require("../scripts/milestone-evm");
 describe("Protected milestone deployment (local only)",()=>{
+  beforeEach(async()=>{await ethers.provider.send("evm_setIntervalMining",[100]);});
+  afterEach(async()=>{await ethers.provider.send("evm_setIntervalMining",[0]);});
   async function fixture() {
     const [signer,treasury,reviewer,buyer,contractor,independent]=await ethers.getSigners();
     const token=await (await ethers.getContractFactory("MockERC20")).deploy("USDC","USDC",6);
@@ -108,6 +110,8 @@ describe("Protected milestone deployment (local only)",()=>{
     const c=await loadFixture(fixture),record={phase:"preflight"},phases=[];
     const vault=await deploy({...c,record,save:r=>phases.push(r.phase)});
     expect(phases[0]).eq("deployment-broadcast-intent");expect(record.phase).eq("deployed-verified-readback");
+    expect(record.deploymentConfirmation.minimumConfirmations).eq(2);
+    expect(record.deploymentConfirmation.observedConfirmations).gte(2);
     expect(record.readyForUse).eq(false);expect(record.sourceVerification).eq("pending");
     expect(record.runtimeHash).eq(ethers.keccak256(await ethers.provider.getCode(record.vault)));
     const id=await vault.deriveProjectId(c.buyer.address,"0x000000000000000000000001"),amount=100000000n;

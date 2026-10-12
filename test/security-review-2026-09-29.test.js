@@ -22,11 +22,12 @@ describe("Security review 2026-09-29: regression protections", function () {
   async function consent(c, overrides = {}, domainOverrides = {}, signer = c.contractor) {
     const domain = { name: "Sivan Celo Settlement Facility", version: "1", chainId: (await ethers.provider.getNetwork()).chainId,
       verifyingContract: await c.vault.getAddress(), ...domainOverrides };
-    const types = { ContractorRefundConsent: [{ name: "agreementId", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "expiry", type: "uint256" }] };
-    const value = { agreementId: c.id, nonce: await c.vault.refundConsentNonces(c.id), expiry: (await time.latest()) + 3600, ...overrides };
-    return { expiry: value.expiry, signature: await signer.signTypedData(domain, types, value) };
+    const types = { ContractorRefundConsent: [{ name: "agreementId", type: "bytes32" }, { name: "nonce", type: "uint256" }, { name: "issuedAt", type: "uint256" }, { name: "expiry", type: "uint256" }] };
+    const issuedAt = await time.latest();
+    const value = { agreementId: c.id, nonce: await c.vault.refundConsentNonces(c.id), issuedAt, expiry: issuedAt + 3600, ...overrides };
+    return { issuedAt: value.issuedAt, expiry: value.expiry, signature: await signer.signTypedData(domain, types, value) };
   }
-  const submit = (c, s) => c.vault.connect(c.outsider).mutualRefundWithConsent(c.id, s.expiry, s.signature);
+  const submit = (c, s) => c.vault.connect(c.outsider).mutualRefundWithConsent(c.id, s.issuedAt, s.expiry, s.signature);
 
   it("rejects buyer/outsider delivery and preserves the original 30-day refund deadline", async function () {
     const c = await loadFixture(fixture);
@@ -48,7 +49,7 @@ describe("Security review 2026-09-29: regression protections", function () {
     const a = await c.vault.getAgreement(c.id);
     expect(a.refundUnlockAt).eq(a.deliveredAt + a.reviewWindowSnapshot);
     const fresh = await loadFixture(fixture);
-    await expect(fresh.vault.connect(fresh.buyer).releasePayment(fresh.id, "0x", "0x", 0)).emit(fresh.vault, "AgreementReleased");
+    await expect(fresh.vault.connect(fresh.buyer).releasePayment(fresh.id, "0x", "0x", 0, 0)).emit(fresh.vault, "AgreementReleased");
   });
 
   it("refuses the legacy signature route even after delivery, dispute and a year", async function () {
@@ -60,7 +61,7 @@ describe("Security review 2026-09-29: regression protections", function () {
     await c.vault.connect(c.contractor).raiseDispute(c.id, "payment now disputed");
     await time.increase(365 * DAY);
     await expect(c.vault.connect(c.outsider).mutualRefund(c.id, signature)).revertedWith("Use expiring refund consent");
-    await expect(submit(c, { expiry: (await time.latest()) + 3600, signature })).revertedWith("Contractor refund consent required");
+    await expect(submit(c, { issuedAt: await time.latest(), expiry: (await time.latest()) + 3600, signature })).revertedWith("Contractor refund consent required");
     expect(await c.token.balanceOf(await c.vault.getAddress())).eq(c.amount);
   });
 
@@ -125,6 +126,7 @@ describe("Security review 2026-09-29: regression protections", function () {
       await consent(c, {}, { chainId: 1 }),
       await consent(c, {}, { verifyingContract: c.token.target }),
       { ...good, expiry: good.expiry + 1 },
+      { ...good, issuedAt: good.issuedAt - 1 },
       { ...good, signature: "0x1234" },
     ];
     for (const s of invalid) await expect(submit(c, s)).revertedWith("Contractor refund consent required");
@@ -137,7 +139,7 @@ describe("Security review 2026-09-29: regression protections", function () {
     await expect(c.vault.connect(c.contractor).mutualRefund(c.id, "0x")).emit(c.vault, "AgreementRefunded");
     await expect(submit(c, s)).revertedWith("Cannot refund in current state");
     const fresh = await loadFixture(fixture), freshSig = await consent(fresh);
-    await fresh.vault.connect(fresh.buyer).releasePayment(fresh.id, "0x", "0x", 0);
+    await fresh.vault.connect(fresh.buyer).releasePayment(fresh.id, "0x", "0x", 0, 0);
     await expect(submit(fresh, freshSig)).revertedWith("Cannot refund in current state");
   });
 
@@ -180,7 +182,7 @@ describe("Security review 2026-09-29: regression protections", function () {
 
   it("cannot pay twice through a malicious token callback", async function () {
     const c = await customFixture(false, true), s = await consent(c);
-    await c.token.setCallback(c.vault.target, c.vault.interface.encodeFunctionData("mutualRefundWithConsent", [c.id, s.expiry, s.signature]));
+    await c.token.setCallback(c.vault.target, c.vault.interface.encodeFunctionData("mutualRefundWithConsent", [c.id, s.issuedAt, s.expiry, s.signature]));
     await expect(submit(c, s)).to.changeTokenBalance(c.token, c.buyer, c.amount);
     expect(await c.token.callbackAttempted()).eq(true);
     expect(await c.token.callbackSucceeded()).eq(false);

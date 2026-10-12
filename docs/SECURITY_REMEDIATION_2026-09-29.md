@@ -25,7 +25,7 @@ must be empty. Relayers cannot use this function with an old permanent signature
 
 ### Relayed call
 
-Use `mutualRefundWithConsent(agreementId, expiry, signature)`.
+Updated 2026-10-12: use `mutualRefundWithConsent(agreementId, issuedAt, expiry, signature)`.
 
 Read `refundConsentNonces(agreementId)` immediately before preparing consent.
 Do **not** use `agreementNonces`: release and bilateral-settlement authorizations
@@ -44,21 +44,24 @@ const types = {
   ContractorRefundConsent: [
     { name: "agreementId", type: "bytes32" },
     { name: "nonce", type: "uint256" },
+    { name: "issuedAt", type: "uint256" },
     { name: "expiry", type: "uint256" },
   ],
 };
-const value = { agreementId, nonce: refundConsentNonce, expiry };
+const value = { agreementId, nonce: refundConsentNonce, issuedAt, expiry };
 ```
 
 The contractor signs. EOA and ERC-1271 contractor wallets are supported by the
 relayed path. A third party may submit the signature, but cannot alter the
-agreement, nonce, expiry, domain or full-refund destination.
+agreement, nonce, issuedAt, expiry, domain or full-refund destination.
 
-Choose a short expiry from the current chain timestamp, such as one hour. At
-execution, the vault requires `block.timestamp <= expiry <= block.timestamp +
-1 days`. This is an execution-time bound, not proof of when an offline signature
-was created; clients must not ask users to sign far-future expiries. At expiry
-itself consent is valid; one second later it is rejected.
+Use the current chain timestamp as issuedAt and choose a short expiry, such as
+one hour later. The vault requires `0 < issuedAt <= block.timestamp <= expiry`
+and `expiry - issuedAt <= 1 days`. The signed interval's maximum duration no
+longer changes with execution time. Deliberately future-dated short intervals
+are not proof of recent creation and can become usable in their signed window;
+clients must not request them. At expiry itself consent is valid; one second
+later it is rejected. See `integration/README.md` section 10 for compatibility.
 
 ### Cancellation and lifecycle invalidation
 
@@ -82,7 +85,7 @@ charging a settlement fee. Terminal states reject replay and repeat payouts.
 
 ### Migration requirement
 
-The typehash now includes expiry, so old two-field signatures are intentionally
+The typehash now includes issuedAt and expiry, so older signatures are intentionally
 incompatible. Updating an ABI alone does not secure an already-deployed immutable
 vault. Deploy a reviewed new version, verify bytecode/source, and configure clients
 for its address. Do not direct new signatures to an old vault or accept a fallback

@@ -3,11 +3,12 @@
 Claim-link escrow is a separate capability: see [Claim Vault v1](CLAIM_VAULT.md)
 for its implemented contract, authorization schema, fees/refunds and outstanding
 application integration. Do not route claim links through agreement adapters.
-The generated ABI reference now includes the claim vault alongside both existing
-agreement vaults; existing agreement semantics and deployments are unchanged.
+The generated ABI reference includes the claim vault alongside both agreement
+vaults. Existing deployed escrow is unchanged; current-source signing migrations
+are explicitly described below and require new deployment-specific adapters.
 
 Status: proposed integration specification, not an implemented SDK or API.
-Reviewed against the local single-agreement and milestone contracts on 2026-10-07.
+Reviewed against the local single-agreement and milestone contracts on 2026-10-12.
 No frontend, backend, deployed contract or signing workflow is changed by this file.
 
 ## Reading order and authoritative references
@@ -282,6 +283,12 @@ Single `disputeResolvedByTimeout` is a legacy field, not proof of resolution.
 Contract terminal state alone may not describe a partial ruling accurately;
 reconcile payout events and amounts.
 
+Current single-vault timeout refunds emit `Inspection expired without acceptance`
+when `deliveredAt` is nonzero, otherwise `Delivery deadline expired`. This is
+an event-reason correction only: refund eligibility and amounts are unchanged.
+Older immutable deployments can emit the undelivered reason even after delivery;
+indexers must use their matching deployment version and recorded delivery state.
+
 ### Critical differences adapters must preserve
 
 | Concern | Single agreement | Milestone project |
@@ -395,6 +402,52 @@ results do not certify the intended live token on all networks.
 
 ## 10. Signing, authentication and role isolation
 
+### Single-vault issuance-bound release/refund consent (2026-10-12)
+
+New immutable single-vault deployments from this source require these exact
+schemas (field order matters):
+
+```text
+ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 issuedAt,uint256 expiry)
+ContractorRefundConsent(bytes32 agreementId,uint256 nonce,uint256 issuedAt,uint256 expiry)
+```
+
+Call `releasePayment(id, buyerSignature, agentAttestation, issuedAt, expiry)` or
+`mutualRefundWithConsent(id, issuedAt, expiry, signature)`. For direct buyer
+release, pass `0, 0` for the unused timestamps; delivery-attestation checks still
+apply. Direct contractor `mutualRefund(id, "0x")` is unchanged. Release uses
+`agreementNonces(id)`; refund uses `refundConsentNonces(id)` and retains its
+contractor cancellation and delivery/dispute invalidation behavior.
+
+For signed release/refund the contract requires `0 < issuedAt <= block.timestamp
+<= expiry` and `expiry - issuedAt <= 86400`. An interval signed for a year cannot
+become valid merely by waiting. Both endpoints are part of the digest; modifying
+either requires a new signature. Exact expiry is inclusive. Invalid issuance,
+overlong/expired intervals or invalid signatures revert without consuming nonces
+or moving funds. Normalize these to consent validation/expiry errors, not success.
+
+Signing builders must read a recent block timestamp from the selected chain,
+use it as `issuedAt`, choose a short expiry (for example one hour), and display
+both to the signer. Do not derive `issuedAt` by subtracting a day from an
+arbitrarily distant expiry. A signed timestamp is a declaration, not proof of
+actual signing time: intentionally future-dated bounded intervals can still
+become usable during their declared window. Strict creation-age proof would
+require an on-chain anchor, which this change does not introduce. Reverts do not
+automatically revoke otherwise valid signatures.
+
+This is an ABI/signing-schema change requiring a new adapter/release mapping,
+not an upgrade to existing vaults. The EIP-712 domain remains version `1`; select
+schemas by verified deployment identity, not domain version alone. Old four-arg
+release and three-arg refund calls are not supported on the new deployment;
+expiry-only signatures are intentionally invalid. Retain old ABIs/adapters for
+old addresses and their existing escrow; never retry against a different schema
+or vault automatically. Frontend/backend repositories have not been migrated by
+this contract-repository change. See generated ABI reference before integration.
+
+Scope: single bilateral settlement and milestone settlement/reviewer-replacement
+schemas are unchanged and still have execution-time remaining-expiry semantics.
+Do not describe those as issuance-bound or automatically reuse these schemas.
+
 - Wallet connection is not backend authentication. Bind the authenticated session
   to verified wallet control and authorize every action/resource server-side.
 - Do not trust an email, frontend role flag or caller-supplied user ID as authority.
@@ -434,6 +487,16 @@ proof that this operation completed.
 On transport timeout, reconcile before permitting a replacement submission.
 Do not blindly resend deposits, approvals or settlements. Distinguish unknown
 broadcast outcome from an explicit user rejection.
+
+Protected single/milestone deployment tooling now uses the same minimum two-block
+observation floor as Claim Vault. Deployment, single-vault allowlist seeding,
+pause and ownership-handover transactions have a bounded receipt wait, canonical
+block check and receipt re-read after state readbacks. Confirmation evidence is
+stored in the deployment journal. Missing, changed or insufficiently confirmed
+receipts fail closed; do not restart a partially broadcast deployment blindly.
+This is testnet observation evidence, not chain-independent economic finality or
+approval to activate a vault. Production gates and `readyForUse:false` remain.
+The legacy local/fork-only deployment script is not a public deployment route.
 
 ## 12. Backend read model and proposed API surface
 

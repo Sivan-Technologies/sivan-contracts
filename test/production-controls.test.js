@@ -9,6 +9,8 @@ const { getNetwork } = require("../config/evm-networks.cjs");
 const { signProof } = require("./helpers/attester-proof");
 
 describe("Production control boundaries (local only)", () => {
+  beforeEach(async () => { await ethers.provider.send("evm_setIntervalMining", [100]); });
+  afterEach(async () => { await ethers.provider.send("evm_setIntervalMining", [0]); });
   it("refuses consent changes after funding regardless of token balance or time", async () => {
     const [owner,buyer,contractor,collector,agent]=await ethers.getSigners();
     const vault=await (await ethers.getContractFactory("SivanAgreementVault")).deploy(collector.address,agent.address,1,owner.address);
@@ -82,6 +84,11 @@ describe("Production control boundaries (local only)", () => {
     const vault=await deployAndSeed({network,config,signer:owner,artifact,record,save:r=>phases.push(r.phase)});
     expect(phases.indexOf("admin-pause-intent")).to.be.lessThan(phases.indexOf("seed-broadcast-intent"));
     expect(record.phase).to.equal("awaiting-admin-acceptance");
+    for (const evidence of [record.deploymentConfirmation, record.pauseConfirmation,
+      record.seedConfirmation, record.handoverConfirmation]) {
+      expect(evidence.minimumConfirmations).eq(2);
+      expect(evidence.observedConfirmations).gte(2);
+    }
     expect(await vault.paused()).to.equal(true);
     expect(await vault.owner()).to.equal(owner.address);
     await vault.connect(admin).acceptOwnership();

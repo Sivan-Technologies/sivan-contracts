@@ -8,6 +8,8 @@ const { configuration, preflight, deployAndSeed } = require("../scripts/helpers/
 const { fund } = require("./helpers/fund");
 
 describe("EVM deployment safeguards (local EVM only)", function () {
+  beforeEach(async () => { await ethers.provider.send("evm_setIntervalMining", [100]); });
+  afterEach(async () => { await ethers.provider.send("evm_setIntervalMining", [0]); });
   let owner, buyer, contractor, collector, agent, token, artifact, build, env, network, config;
   beforeEach(async () => {
     [owner, buyer, contractor, collector, agent] = await ethers.getSigners();
@@ -100,6 +102,11 @@ describe("EVM deployment safeguards (local EVM only)", function () {
         save: r => snapshots.push(JSON.parse(JSON.stringify(r))) });
       expect(record.phase).to.equal("deployed-verified-readback");
       expect(record.sourceVerification).to.equal("pending");
+      for (const evidence of [record.deploymentConfirmation, record.seedConfirmation]) {
+        expect(evidence.minimumConfirmations).eq(2);
+        expect(evidence.observedConfirmations).gte(2);
+        expect(evidence.blockHash).to.match(/^0x[0-9a-f]{64}$/i);
+      }
       expect(record.runtimeHash).to.equal(ethers.keccak256(await ethers.provider.getCode(record.vault)));
       expect(snapshots[0].phase).to.equal("deployment-broadcast-intent");
       expect(await vault.tokenAllowlistEnforced()).to.equal(true);
@@ -108,7 +115,7 @@ describe("EVM deployment safeguards (local EVM only)", function () {
       await token.connect(buyer).approve(record.vault, amount);
       await fund(vault.connect(buyer), id, contractor.address, await token.getAddress(), amount, 24, ethers.ZeroAddress);
       const a = await vault.getAgreement(id);
-      await vault.connect(buyer).releasePayment(id, "0x", "0x", 0);
+      await vault.connect(buyer).releasePayment(id, "0x", "0x", 0, 0);
       expect(await token.balanceOf(contractor.address)).to.equal(a.netAmount);
       expect(await token.balanceOf(collector.address)).to.equal(a.feeAmount);
       expect(await token.balanceOf(record.vault)).to.equal(0);

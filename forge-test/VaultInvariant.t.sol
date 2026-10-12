@@ -172,7 +172,7 @@ contract VaultHandler is ArbitrationTestTerms {
         uint256 before = token.balanceOf(address(vault));
         bytes memory att = _agentSig(id, a.deliverableProof, a.deadlineTimestamp);
         vm.prank(a.buyer);
-        try vault.releasePayment(id, "", att, 0) {
+        try vault.releasePayment(id, "", att, 0, 0) {
             uint256 moved = before - token.balanceOf(address(vault));
             ghostPaidOut += moved;
             // A release must move EXACTLY what this agreement holds. Anything

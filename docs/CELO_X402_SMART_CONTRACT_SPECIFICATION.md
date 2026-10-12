@@ -118,7 +118,9 @@ function markDelivered(
 function releasePayment(
     bytes32 agreementId,
     bytes calldata buyerSignature,
-    bytes calldata agentAttestation
+    bytes calldata agentAttestation,
+    uint256 issuedAt,
+    uint256 expiry
 ) external nonReentrant;
 
 function refundBuyer(
@@ -138,7 +140,11 @@ Domain Separator:
 - verifyingContract: SivanAgreementVault address
 
 Release Authorization TypeHash:
-keccak256("ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 expiry)")
+keccak256("ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 issuedAt,uint256 expiry)")
+
+For new source deployments, release/refund consent binds issuedAt and expiry,
+with at most 86400 seconds between them. See `integration/README.md` section 10
+for the exact ABI, signing limitations and older-deployment compatibility.
 
 Agent Attestation TypeHash:
 keccak256("AgentAttestation(bytes32 agreementId,uint256 agentId,bytes32 deliverableHash,uint256 timestamp)")

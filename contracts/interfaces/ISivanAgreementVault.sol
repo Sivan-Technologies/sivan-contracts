@@ -191,6 +191,7 @@ interface ISivanAgreementVault {
         bytes32 agreementId,
         bytes calldata buyerSignature,
         bytes calldata agentAttestation,
+        uint256 issuedAt,
         uint256 expiry
     ) external;
 
@@ -202,8 +203,8 @@ interface ISivanAgreementVault {
         bytes calldata contractorConsentSignature
     ) external;
 
-    /// @notice Relayed EIP-712/ERC-1271 refund using the current refund consent nonce and expiry.
-    function mutualRefundWithConsent(bytes32 agreementId, uint256 expiry, bytes calldata signature) external;
+    /// @notice Relayed refund binding the current nonce and a signed issuance/expiry interval.
+    function mutualRefundWithConsent(bytes32 agreementId, uint256 issuedAt, uint256 expiry, bytes calldata signature) external;
 
     /// @notice Contractor-only cancellation; also available while paused.
     function invalidateRefundConsent(bytes32 agreementId) external;

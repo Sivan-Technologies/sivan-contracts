@@ -3,7 +3,7 @@ const { assertDeployable, DeploymentError } = require("../../config/evm-networks
 const { walletPolicy, checkWallet } = require("./control-wallets");
 
 const FQN = "contracts/SivanClaimVault.sol:SivanClaimVault";
-const MIN_CONFIRMATIONS = 2;
+const { MIN_CONFIRMATIONS } = require("./confirmations");
 const ACK = "bearer-key-seven-day-net-refund-nonrefundable-fee";
 function guard(network, profile) {
   if (profile !== "testnet") throw new DeploymentError("Claim deployment requires the testnet profile");

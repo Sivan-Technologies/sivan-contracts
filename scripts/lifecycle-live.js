@@ -265,7 +265,7 @@ async function main() {
     const cBefore = await token.balanceOf(contractor.address);
     const fBefore = await token.balanceOf(feeCollector);
     await recordTransaction("releasePayment", await vault
-      .connect(buyer).releasePayment(A, "0x", attestation, 0));
+      .connect(buyer).releasePayment(A, "0x", attestation, 0, 0));
 
     check("contractor received net", (await token.balanceOf(contractor.address)) - cBefore, agr.netAmount);
     check("fee collector received fee", (await token.balanceOf(feeCollector)) - fBefore, agr.feeAmount);

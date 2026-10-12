@@ -217,3 +217,107 @@ constructor simulations do not establish public settlement support. All five
 claim-specific signing/role/token configurations are missing; four non-BNB USDT
 testnet identities remain unverified. No public transactions were submitted,
 and no live product, keys or balances were modified.
+
+## 2026-10-12 — Internal security review and three local reproductions
+
+Reviewed production commit `5c06a1e` across single, milestone and claim vaults.
+See `docs/SECURITY_REVIEW_2026-10-12.md` for scope, evidence, limitations and
+four low-severity findings. The new test file reproduces far-future release and
+refund signatures becoming executable later, and a delivered refund emitting
+the wrong reason. These tests assert current behavior, not remediation success.
+
+No production source, ABI, fee, deadline, consent schema or deployment gate was
+changed. Existing adapters retain their current semantics. Integrators must not
+interpret a one-day remaining-expiry check as proof of recently issued consent,
+or use the single-vault refund reason alone to infer absence of delivery.
+Public funded integration and production controls remain unverified. This is
+an internal review, not independent audit approval or a guarantee of safety.
+
+## 2026-10-12 — Partial remediation: refund reason and deployment receipts
+
+SR-02: `refundBuyer` now distinguishes a recorded-delivery review timeout from
+an undelivered deadline. Eligibility, payout amounts, fees, ABI and signature
+schemas are unchanged. Old deployment event readers remain supported as described
+in the integration guide; they must not infer delivery solely from the reason.
+
+SR-03: protected single/milestone deployment helpers now wait for two confirmations
+with a 180-second timeout, validate the canonical receipt block and re-fetch the
+successful receipt after readbacks. The same checks cover single-vault seeding,
+pause and ownership handover, with evidence saved in the journal. Claim's minimum
+is imported from the shared policy; its existing readback safeguards remain.
+Tests exercise insufficient confirmation, missing/reorged/changed receipts,
+timeout propagation and journal evidence. Local fixtures mine additional blocks;
+this is not evidence of public-chain finality or production activation.
+
+SR-01 remains open: its first two audit reproductions still demonstrate the
+existing temporal behavior. No consent schema was silently changed. A declared
+signed validity interval cannot prove the actual date of signing; stricter
+freshness requires an on-chain anchor and a deliberate workflow decision.
+SR-04 remains open: no forced package upgrade, audit suppression or untested
+cryptographic replacement was applied. Hardhat 3 migration requires coordinated
+ESM/plugin/test/deployment/artifact-tooling changes and full revalidation.
+
+No deployment, public-chain transaction, live account or funds were touched.
+
+Validation of this partial remediation: compilation passed; the complete Hardhat
+suite passed 305 cases (including two unresolved-behavior reproductions, not two
+signature fixes); the five-profile local Claim matrix passed 145 cases. The
+isolated ethers-v6 signing probe passed. Slither's medium/high failure gate passed
+while still reporting 45 timestamp/naming results across 67 analyzed contracts;
+this is not a finding-free audit. Integration drift checks and whitespace checks
+passed. Fresh npm audit still exits 1 with 15 low and zero moderate/high/critical
+entries. Foundry and public funded lifecycles were not rerun for this follow-up.
+
+## 2026-10-12 — Requested single-vault signature and event remediation
+
+Supersedes the release/refund status in the preceding partial-remediation entry.
+`ReleaseAuthorization` and `ContractorRefundConsent` now sign `issuedAt` before
+`expiry`. The two corresponding entry points also take `issuedAt` before expiry.
+The interval must satisfy `0 < issuedAt <= now <= expiry` and a maximum duration
+of 86400 seconds. An overlong signed interval stays invalid as time advances;
+tampering with issuedAt does not refresh a signature. Direct buyer release uses
+two zero timestamp arguments and otherwise retains its prior checks. Refund
+nonces, ERC-1271 support, invalidation, token-transfer rollback and fees are intact.
+
+This changes ABI selectors and typed-data hashes on NEW deployments. The domain
+name/version stays unchanged; deployment-specific adapter/schema identity is
+required. Updated local lifecycle scripts, JS signing fixtures, Foundry handlers,
+active signing documentation and the interface. Old immutable deployments and
+their existing escrow are unchanged; other frontend/backend repositories are not
+migrated. No fallback accepts expiry-only signatures on the new source.
+
+Refund reasons are now exactly `Inspection expired without acceptance` after
+recorded delivery and `Delivery deadline expired` otherwise. The stored delivery
+record is used because state is already Refunded when the event is emitted.
+Indexers must keep old-deployment reason compatibility without treating this
+message as proof about off-chain work. Refund eligibility and amounts are unchanged.
+
+Scope/limits: signed issuedAt is a declaration, not independently proven signing
+age. Clients must use the current chain timestamp rather than deliberately sign
+future windows. Single bilateral settlement and milestone settlement/replacement
+still have their original remaining-expiry semantics; this task does not claim
+those paths were migrated. Elliptic migration and public funded E2E remain open.
+
+Focused tests passed 40 cases; the complete Hardhat suite passed 312 cases,
+including desired-behavior regressions for rejection today AND one year later,
+timestamp tampering, old-schema/domain rejection, exact expiry, nonce/fund safety,
+valid release/refund, and both event reasons. The local Claim matrix also passed
+145 cases. Foundry passed all 37 tests across nine suites, with 512 fuzz runs and
+256 invariant sequences of depth 50. The new overlong-interval property was
+tested through the original signed expiry, without changing the signed values.
+
+The first Foundry attempt exposed a fixture issue: after `vm.warp`, optimized
+test code re-read `block.timestamp` instead of preserving the original issuedAt.
+The trace showed it submitting changed calldata, correctly rejected by signature
+validation. The fixture now uses `vm.getBlockTimestamp()` per forge-std guidance;
+the full rerun passed. No contract check was relaxed to fix the test.
+No public transactions, deployment, commit or push performed.
+
+Final clean-artifact validation: compiled all 39 Solidity files and reran the
+full Hardhat suite (312 passing). Slither analyzed 40 contracts / 101 detectors;
+its medium/high gate passed with 39 timestamp/naming results remaining. Clean
+compilation removed mixed old/new build-info artifacts. The existing exact-ID
+triage for `AgreementState.Uninitialized` equality was re-reviewed and its ID
+updated after source offsets shifted; no detector-wide suppression or gate
+reduction was introduced. ABI generation changes only the two intended function
+signatures; the guide documents both typed-data changes and adapter migration.

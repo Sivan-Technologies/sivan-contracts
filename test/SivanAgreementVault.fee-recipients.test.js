@@ -40,7 +40,7 @@ describe("Vault-self fee recipient guards", () => {
       await fund(vault.connect(buyer), ID, contractor.address, await token.getAddress(), amount, 24,
         withPartner ? partner.address : ethers.ZeroAddress);
       const a = await vault.getAgreement(ID);
-      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0))
+      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0))
         .to.changeTokenBalances(token, [contractor, collector, partner], [a.netAmount, a.feeAmount - a.partnerFeeAmount, a.partnerFeeAmount]);
       expect(await token.balanceOf(await vault.getAddress())).to.equal(0);
     });
@@ -48,7 +48,7 @@ describe("Vault-self fee recipient guards", () => {
   it("allows zero-fee settlement without a partner", async () => {
     await vault.setFeePolicy(0, 0, false);
     await fund(vault.connect(buyer), ID, contractor.address, await token.getAddress(), amount, 24, ethers.ZeroAddress);
-    await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0)).to.changeTokenBalance(token, contractor, amount);
+    await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0)).to.changeTokenBalance(token, contractor, amount);
     expect(await token.balanceOf(await vault.getAddress())).to.equal(0);
   });
 
@@ -74,9 +74,9 @@ describe("Vault-self fee recipient guards", () => {
     expect(await vault.agreementFeeCollectors(ID)).to.equal(collector.address);
     expect(await vault.agreementFeeCollectors(second)).to.equal(partner.address);
     const a = await vault.getAgreement(ID);
-    await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0))
+    await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0))
       .to.changeTokenBalances(token, [collector, partner], [a.feeAmount, 0]);
-    await expect(vault.connect(buyer).releasePayment(second, "0x", "0x", 0))
+    await expect(vault.connect(buyer).releasePayment(second, "0x", "0x", 0, 0))
       .to.changeTokenBalances(token, [collector, partner], [0, a.feeAmount]);
   });
 

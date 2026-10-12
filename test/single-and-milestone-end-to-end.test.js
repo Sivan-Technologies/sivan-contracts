@@ -61,8 +61,8 @@ describe(`Single and milestone agreements together (${variant}, local fixtures o
     expect((await c.single.getAgreement(c.id)).state).eq(1);
     expect(await c.token.balanceOf(await c.single.getAddress())).eq(U(100));
     const proof=await c.deliverSingle();
-    await expect(c.single.connect(c.buyer).releasePayment(c.id,"0x","0x",0)).reverted;
-    await c.single.connect(c.buyer).releasePayment(c.id,"0x",proof,0);
+    await expect(c.single.connect(c.buyer).releasePayment(c.id,"0x","0x", 0,0)).reverted;
+    await c.single.connect(c.buyer).releasePayment(c.id,"0x",proof, 0,0);
     expect((await c.multi.getProject(c.id)).remaining).eq(U(350));
     for(const i of [0,1]) {await c.deliverMulti(i);await c.releaseMulti(i);}
     expect(await c.token.balanceOf(c.contractor.address)).eq(a.netAmount+U(495));
@@ -72,7 +72,7 @@ describe(`Single and milestone agreements together (${variant}, local fixtures o
     expect(await c.token.balanceOf(await c.single.getAddress())).eq(0);
     expect(await c.token.balanceOf(await c.multi.getAddress())).eq(0);
     expect(await c.multi.tokenLiability(await c.token.getAddress())).eq(0);
-    await expect(c.single.connect(c.buyer).releasePayment(c.id,"0x",proof,0)).reverted;
+    await expect(c.single.connect(c.buyer).releasePayment(c.id,"0x",proof, 0,0)).reverted;
     await expect(c.releaseMulti(0)).reverted;
   });
   it("refunds a single job while milestone arbitration remains isolated, then closes both",async()=>{
@@ -134,7 +134,7 @@ describe(`Single and milestone agreements together (${variant}, local fixtures o
     expect((await c.multi.getProject(c.id)).termsHash).eq(before.termsHash);
     expect(await c.token.balanceOf(await c.single.getAddress())).eq(U(100));
     await c.single.unpause();
-    await c.single.connect(c.buyer).releasePayment(c.id,"0x","0x",0);
+    await c.single.connect(c.buyer).releasePayment(c.id,"0x","0x", 0,0);
     expect((await c.single.getAgreement(c.id)).state).eq(3);
     expect((await c.multi.getProject(c.id)).remaining).eq(U(400));
   });
@@ -154,7 +154,7 @@ describe(`Single and milestone agreements together (${variant}, local fixtures o
       const before=await c.single.getAgreement(c.id);
       await c.deliverMulti(0);
       await c.token.setBlocked(c.treasury.address);
-      await expect(c.single.connect(c.buyer).releasePayment(c.id,'0x','0x',0)).reverted;
+      await expect(c.single.connect(c.buyer).releasePayment(c.id,'0x','0x', 0,0)).reverted;
       await expect(c.releaseMulti(0)).reverted;
       expect((await c.single.getAgreement(c.id)).state).eq(before.state);
       expect((await c.multi.getMilestone(c.id,0)).state).eq(2);
@@ -162,7 +162,7 @@ describe(`Single and milestone agreements together (${variant}, local fixtures o
       expect(await c.token.balanceOf(await c.single.getAddress())).eq(U(100));
       expect(await c.token.balanceOf(await c.multi.getAddress())).eq(U(500));
       await c.token.setBlocked(ethers.ZeroAddress);
-      await c.single.connect(c.buyer).releasePayment(c.id,'0x','0x',0);
+      await c.single.connect(c.buyer).releasePayment(c.id,'0x','0x', 0,0);
       for(const i of [0,1,2]) { if(i!==0) await c.deliverMulti(i); await c.releaseMulti(i); }
       expect(await c.token.balanceOf(await c.single.getAddress())).eq(0);
       expect(await c.token.balanceOf(await c.multi.getAddress())).eq(0);

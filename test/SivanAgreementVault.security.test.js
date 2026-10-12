@@ -112,7 +112,7 @@ describe("SivanAgreementVault · security", function () {
     // An attacker throws a garbage 65-byte signature at it. This must revert.
     const junk = "0x" + "11".repeat(65);
     await expect(
-      vault.connect(attacker).releasePayment(id, junk, "0x", 0)
+      vault.connect(attacker).releasePayment(id, junk, "0x", 0, 0)
     ).to.be.reverted;
 
     const after = await vault.agreementNonces(id);
@@ -188,7 +188,7 @@ describe("SivanAgreementVault · security", function () {
 
     const a = await vault.getAgreement(id);
     const sig = await agentSig(vault, owner, id, 9827n, "", a.deadlineTimestamp);
-    await vault.connect(buyer).releasePayment(id, "0x", sig, 0);
+    await vault.connect(buyer).releasePayment(id, "0x", sig, 0, 0);
 
     // Every wei must have left the vault for this agreement.
     expect(await token.balanceOf(vaultAddr)).to.equal(
@@ -209,9 +209,9 @@ describe("SivanAgreementVault · security", function () {
 
     const a = await vault.getAgreement(id);
     const sig = await agentSig(vault, owner, id, 9827n, "", a.deadlineTimestamp);
-    await vault.connect(buyer).releasePayment(id, "0x", sig, 0);
+    await vault.connect(buyer).releasePayment(id, "0x", sig, 0, 0);
     await expect(
-      vault.connect(buyer).releasePayment(id, "0x", sig, 0)
+      vault.connect(buyer).releasePayment(id, "0x", sig, 0, 0)
     ).to.be.revertedWith("Cannot release in current state");
   });
 
@@ -227,7 +227,7 @@ describe("SivanAgreementVault · security", function () {
       id, contractor.address, await token.getAddress(), USDC(100), 1, ethers.ZeroAddress);
     const a = await vault.getAgreement(id);
     const sig = await agentSig(vault, owner, id, 9827n, "", a.deadlineTimestamp);
-    await vault.connect(buyer).releasePayment(id, "0x", sig, 0);
+    await vault.connect(buyer).releasePayment(id, "0x", sig, 0, 0);
 
     await ethers.provider.send("evm_increaseTime", [7200]);
     await ethers.provider.send("evm_mine", []);

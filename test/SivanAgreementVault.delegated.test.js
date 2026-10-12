@@ -49,6 +49,7 @@ describe("SivanAgreementVault · delegated release", function () {
       { name: "contractor", type: "address" },
       { name: "netAmount", type: "uint256" },
       { name: "nonce", type: "uint256" },
+      { name: "issuedAt", type: "uint256" },
       { name: "expiry", type: "uint256" },
     ],
   };
@@ -86,19 +87,20 @@ describe("SivanAgreementVault · delegated release", function () {
     const id = ID("relayed-ok");
     const agr = await fund(vault, usdc, buyer, contractor, id);
 
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
     const buyerSig = await buyer.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id,
       contractor: contractor.address,
       netAmount: agr.netAmount,
       nonce: await vault.agreementNonces(id),
-      expiry,
+      issuedAt, expiry,
     });
 
     const before = await usdc.balanceOf(contractor.address);
     await expect(
       vault.connect(relayer).releasePayment(
-        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.not.be.reverted;
 
     expect(await usdc.balanceOf(contractor.address)).to.equal(before + agr.netAmount);
@@ -109,13 +111,14 @@ describe("SivanAgreementVault · delegated release", function () {
     const id = ID("expired");
     const agr = await fund(vault, usdc, buyer, contractor, id);
 
-    const expiry = (await now()) + 600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 600;
     const buyerSig = await buyer.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id,
       contractor: contractor.address,
       netAmount: agr.netAmount,
       nonce: await vault.agreementNonces(id),
-      expiry,
+      issuedAt, expiry,
     });
 
     await ethers.provider.send("evm_increaseTime", [1200]);
@@ -123,7 +126,7 @@ describe("SivanAgreementVault · delegated release", function () {
 
     await expect(
       vault.connect(relayer).releasePayment(
-        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.be.revertedWith("Release authorization expired");
   });
 
@@ -133,18 +136,19 @@ describe("SivanAgreementVault · delegated release", function () {
     const agr = await fund(vault, usdc, buyer, contractor, id);
 
     // A year out. A standing release order that far ahead is a liability.
-    const expiry = (await now()) + 365 * 24 * 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 365 * 24 * 3600;
     const buyerSig = await buyer.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id,
       contractor: contractor.address,
       netAmount: agr.netAmount,
       nonce: await vault.agreementNonces(id),
-      expiry,
+      issuedAt, expiry,
     });
 
     await expect(
       vault.connect(relayer).releasePayment(
-        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.be.revertedWith("Release authorization window too long");
   });
 
@@ -153,18 +157,19 @@ describe("SivanAgreementVault · delegated release", function () {
     const id = ID("wrong-signer");
     const agr = await fund(vault, usdc, buyer, contractor, id);
 
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
     const forged = await attacker.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id,
       contractor: contractor.address,
       netAmount: agr.netAmount,
       nonce: await vault.agreementNonces(id),
-      expiry,
+      issuedAt, expiry,
     });
 
     await expect(
       vault.connect(relayer).releasePayment(
-        id, forged, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, forged, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.be.revertedWith("Invalid buyer release authorization");
   });
 
@@ -173,18 +178,19 @@ describe("SivanAgreementVault · delegated release", function () {
     const id = ID("wrong-amount");
     const agr = await fund(vault, usdc, buyer, contractor, id);
 
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
     const buyerSig = await buyer.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id,
       contractor: contractor.address,
       netAmount: agr.netAmount + 1n, // one wei more than the agreement holds
       nonce: await vault.agreementNonces(id),
-      expiry,
+      issuedAt, expiry,
     });
 
     await expect(
       vault.connect(relayer).releasePayment(
-        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, buyerSig, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.be.revertedWith("Invalid buyer release authorization");
   });
 
@@ -192,25 +198,26 @@ describe("SivanAgreementVault · delegated release", function () {
     const { vault, usdc, domain, owner, buyer, contractor, relayer, attacker } = await setup();
     const id = ID("nonce-preserved");
     const agr = await fund(vault, usdc, buyer, contractor, id);
-    const expiry = (await now()) + 3600;
+    const issuedAt = await now();
+    const expiry = issuedAt + 3600;
 
     const forged = await attacker.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id, contractor: contractor.address, netAmount: agr.netAmount,
-      nonce: await vault.agreementNonces(id), expiry,
+      nonce: await vault.agreementNonces(id), issuedAt, expiry,
     });
     await expect(
       vault.connect(relayer).releasePayment(
-        id, forged, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, forged, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.be.reverted;
 
     // The buyer's genuine signature, made for nonce 0, must still work.
     const good = await buyer.signTypedData(domain, RELEASE_TYPES, {
       agreementId: id, contractor: contractor.address, netAmount: agr.netAmount,
-      nonce: 0n, expiry,
+      nonce: 0n, issuedAt, expiry,
     });
     await expect(
       vault.connect(relayer).releasePayment(
-        id, good, await agentSig(domain, owner, id, agr.deadlineTimestamp), expiry)
+        id, good, await agentSig(domain, owner, id, agr.deadlineTimestamp), issuedAt, expiry)
     ).to.not.be.reverted;
   });
 
@@ -221,7 +228,7 @@ describe("SivanAgreementVault · delegated release", function () {
 
     await expect(
       vault.connect(buyer).releasePayment(
-        id, "0x", await agentSig(domain, owner, id, agr.deadlineTimestamp), 0)
+        id, "0x", await agentSig(domain, owner, id, agr.deadlineTimestamp), 0, 0)
     ).to.not.be.reverted;
   });
 });

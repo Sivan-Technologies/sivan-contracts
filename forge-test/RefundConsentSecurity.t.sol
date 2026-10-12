@@ -35,12 +35,12 @@ contract RefundConsentSecurityTest is Test {
         vm.stopPrank();
     }
 
-    function sign(uint256 expiry) internal view returns (bytes memory) {
+    function sign(uint256 issuedAt, uint256 expiry) internal view returns (bytes memory) {
         bytes32 domain = keccak256(abi.encode(
             keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
             keccak256("Sivan Celo Settlement Facility"), keccak256("1"), block.chainid, address(vault)));
         bytes32 message = keccak256(abi.encode(vault.CONTRACTOR_CONSENT_TYPEHASH(), id,
-            vault.refundConsentNonces(id), expiry));
+            vault.refundConsentNonces(id), issuedAt, expiry));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(CONTRACTOR_KEY, keccak256(abi.encodePacked("\x19\x01", domain, message)));
         return abi.encodePacked(r, s, v);
     }
@@ -70,24 +70,26 @@ contract RefundConsentSecurityTest is Test {
         fund(amount, 720);
         if (state > 0) { vm.prank(contractor); vault.markDelivered(id, "proof"); }
         if (state > 1) { vm.prank(buyer); vault.raiseDispute(id, "disputed"); }
-        uint256 expiry = block.timestamp + bound(lifetime_, 1, 1 days);
+        uint256 issuedAt = vm.getBlockTimestamp();
+        uint256 expiry = issuedAt + bound(lifetime_, 1, 1 days);
         uint256 nonce = vault.refundConsentNonces(id);
-        bytes memory signature = sign(expiry);
+        bytes memory signature = sign(issuedAt, expiry);
         vault.pause();
-        vault.mutualRefundWithConsent(id, expiry, signature);
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
         assertEq(token.balanceOf(buyer), amount);
         assertEq(token.balanceOf(contractor), 0);
         assertEq(token.balanceOf(address(vault)), 0);
         assertEq(vault.refundConsentNonces(id), nonce + 1);
         vm.expectRevert("Cannot refund in current state");
-        vault.mutualRefundWithConsent(id, expiry, signature);
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
     }
 
     function testFuzz_expiredOrRevokedConsentCannotMoveFunds(uint96 amount_, uint32 lifetime_, bool cancel) public {
         uint256 amount = bound(amount_, 1, 1e15);
         fund(amount, 720);
-        uint256 expiry = block.timestamp + bound(lifetime_, 1, 1 days);
-        bytes memory signature = sign(expiry);
+        uint256 issuedAt = vm.getBlockTimestamp();
+        uint256 expiry = issuedAt + bound(lifetime_, 1, 1 days);
+        bytes memory signature = sign(issuedAt, expiry);
         if (cancel) {
             vm.prank(contractor); vault.invalidateRefundConsent(id);
             vm.expectRevert("Contractor refund consent required");
@@ -95,7 +97,7 @@ contract RefundConsentSecurityTest is Test {
             vm.warp(expiry + 1);
             vm.expectRevert("Invalid refund consent expiry");
         }
-        vault.mutualRefundWithConsent(id, expiry, signature);
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
         assertEq(token.balanceOf(address(vault)), amount);
         assertEq(token.balanceOf(buyer), 0);
     }
@@ -103,14 +105,36 @@ contract RefundConsentSecurityTest is Test {
     function testFuzz_newBusinessStateInvalidatesConsent(uint96 amount_, bool dispute) public {
         uint256 amount = bound(amount_, 1, 1e15);
         fund(amount, 720);
-        uint256 expiry = block.timestamp + 1 hours;
-        bytes memory signature = sign(expiry);
+        uint256 issuedAt = vm.getBlockTimestamp();
+        uint256 expiry = issuedAt + 1 hours;
+        bytes memory signature = sign(issuedAt, expiry);
         vm.prank(contractor);
         if (dispute) vault.raiseDispute(id, "dispute");
         else vault.markDelivered(id, "proof");
         vm.expectRevert("Contractor refund consent required");
-        vault.mutualRefundWithConsent(id, expiry, signature);
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
         assertEq(vault.refundConsentNonces(id), 1);
+        assertEq(token.balanceOf(address(vault)), amount);
+    }
+
+    function testFuzz_overlongSignedIntervalNeverBecomesValid(uint96 amount_, uint32 lifetime_) public {
+        uint256 amount = bound(amount_, 1, 1e15);
+        fund(amount, 720);
+        // A cheatcode read keeps the signed value fixed across vm.warp; the
+        // optimizer may otherwise re-evaluate block.timestamp in the test.
+        uint256 issuedAt = vm.getBlockTimestamp();
+        uint256 expiry = issuedAt + bound(lifetime_, 1 days + 1, 3650 days);
+        bytes memory signature = sign(issuedAt, expiry);
+        vm.expectRevert("Invalid refund consent expiry");
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
+        // At the signed expiry the old remaining-time-only check accepted this.
+        vm.warp(expiry);
+        vm.expectRevert("Invalid refund consent expiry");
+        vault.mutualRefundWithConsent(id, issuedAt, expiry, signature);
+        // Neither can a relayer rewrite the signed issuance time to refresh it.
+        vm.expectRevert("Contractor refund consent required");
+        vault.mutualRefundWithConsent(id, expiry - 1 hours, expiry, signature);
+        assertEq(vault.refundConsentNonces(id), 0);
         assertEq(token.balanceOf(address(vault)), amount);
     }
 }

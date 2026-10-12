@@ -190,7 +190,7 @@ describe("Audit findings: fixes", function () {
 
   describe("F5: the settlement route is explicit", () => {
     it("tags a buyer release as BuyerAuthorised", async () => {
-      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0))
+      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0))
         .to.emit(vault, "AgreementReleased")
         .withArgs(ID, buyer.address, contractor.address, anyVal, anyVal, anyVal, false, 0);
     });

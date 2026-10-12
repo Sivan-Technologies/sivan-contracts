@@ -224,7 +224,7 @@ describe("Delivery lockup and dispute resolution", function () {
     });
 
     it("cannot dispute an already released agreement", async () => {
-      await vault.connect(buyer).releasePayment(ID, "0x", "0x", 0);
+      await vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0);
       await expect(
         vault.connect(buyer).raiseDispute(ID, "regret")
       ).to.be.revertedWith("Cannot dispute in current state");
@@ -254,7 +254,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
     it("blocks release", async () => {
       await expect(
-        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0)
+        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0)
       ).to.be.revertedWith("Cannot release in current state");
     });
 
@@ -461,7 +461,7 @@ describe("Delivery lockup and dispute resolution", function () {
     it("buyer releases directly from Funded with no delivery claim", async () => {
       const { netAmount } = await vault.getAgreement(ID);
       await expect(
-        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0)
+        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0)
       ).to.changeTokenBalance(token, contractor, netAmount);
     });
 
@@ -492,7 +492,7 @@ describe("Delivery lockup and dispute resolution", function () {
       });
 
       await expect(
-        vault.connect(buyer).releasePayment(ID, "0x", sig, 0)
+        vault.connect(buyer).releasePayment(ID, "0x", sig, 0, 0)
       ).to.changeTokenBalance(token, contractor, agr.netAmount);
       expect(await stateOf()).to.equal(State.Released);
     });
@@ -508,7 +508,7 @@ describe("Delivery lockup and dispute resolution", function () {
 
       const { netAmount } = await vault.getAgreement(ID);
       await expect(
-        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0)
+        vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0)
       ).to.changeTokenBalance(token, contractor, netAmount);
     });
 
@@ -539,7 +539,7 @@ describe("Delivery lockup and dispute resolution", function () {
           timestamp: agr.deadlineTimestamp,
         }
       );
-      await expect(vault.connect(buyer).releasePayment(ID, "0x", sig, 0)).to.not.be.reverted;
+      await expect(vault.connect(buyer).releasePayment(ID, "0x", sig, 0, 0)).to.not.be.reverted;
     });
   });
 });

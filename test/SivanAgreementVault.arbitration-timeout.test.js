@@ -122,7 +122,7 @@ describe("Agreed arbitration and independent escalation", function () {
       expect((await vault.getAgreement(ID)).state).to.equal(5);
       expect((await vault.getAgreement(ID)).disputeResolvedByTimeout).to.equal(false);
       await expect(vault.connect(buyer).refundBuyer(ID)).to.be.revertedWith("Cannot refund in current state");
-      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0)).to.be.revertedWith("Cannot release in current state");
+      await expect(vault.connect(buyer).releasePayment(ID, "0x", "0x", 0, 0)).to.be.revertedWith("Cannot release in current state");
       expect(await token.balanceOf(await vault.getAddress())).to.equal(AMOUNT);
       expect(await token.balanceOf(buyer.address)).to.equal(0);
       expect(await token.balanceOf(contractor.address)).to.equal(0);

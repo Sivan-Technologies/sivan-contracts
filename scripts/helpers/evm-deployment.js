@@ -2,6 +2,7 @@ const { ethers } = require("ethers");
 const { assertDeployable, DeploymentError } = require("../../config/evm-networks.cjs");
 const ERC20 = ["function symbol() view returns(string)", "function decimals() view returns(uint8)"];
 const { walletPolicy, checkControls } = require("./control-wallets");
+const { waitForConfirmedReceipt, assertConfirmedReceipt } = require("./confirmations");
 
 function configuration(network, env) {
   if (env.EVM_PROFILE === "production") throw new DeploymentError("Production deployment remains disabled pending independent review and protected signer integration");
@@ -124,7 +125,7 @@ async function deployAndSeed({ network, config, signer, artifact, record, save }
   const vault = await factory.deploy(config.feeCollector, config.agentAttester, config.agentId, await signer.getAddress(), { nonce: record.nonce });
   record.deployTx = vault.deploymentTransaction().hash;
   save(record);
-  const receipt = await vault.deploymentTransaction().wait();
+  const receipt = await waitForConfirmedReceipt(provider, vault.deploymentTransaction());
   if (!receipt || receipt.status !== 1) throw new DeploymentError("Deployment receipt unsuccessful");
   record.deployBlock = receipt.blockNumber;
   record.phase = "deployed-unseeded";
@@ -134,8 +135,10 @@ async function deployAndSeed({ network, config, signer, artifact, record, save }
   if (needsHandover) {
     record.phase = "admin-pause-intent"; save(record);
     const pause = await vault.pause();
-    record.pauseTx = pause.hash; save(record); await pause.wait();
-    if (!(await vault.paused())) throw new DeploymentError("Pause readback failed before seeding");
+    record.pauseTx = pause.hash; save(record);
+    const paused = await waitForConfirmedReceipt(provider, pause);
+    if (!(await vault.paused({ blockTag: paused.blockNumber }))) throw new DeploymentError("Pause readback failed before seeding");
+    record.pauseConfirmation = await assertConfirmedReceipt(provider, paused);
   }
   const addresses = config.tokens.map(t => t.address);
   const seedGas = await vault.setSupportedTokens.estimateGas(addresses, true);
@@ -148,7 +151,7 @@ async function deployAndSeed({ network, config, signer, artifact, record, save }
   const seed = await vault.setSupportedTokens(addresses, true);
   record.seedTx = seed.hash;
   save(record);
-  const seeded = await seed.wait();
+  const seeded = await waitForConfirmedReceipt(provider, seed);
   if (!seeded || seeded.status !== 1) throw new DeploymentError("Seeding failed; do not redeploy");
   record.seedBlock = seeded.blockNumber;
   record.phase = "seeded-awaiting-readback";
@@ -161,14 +164,19 @@ async function deployAndSeed({ network, config, signer, artifact, record, save }
       (await vault.agentAttester(overrides)).toLowerCase() !== config.agentAttester.toLowerCase() ||
       String(await vault.registeredAgentId(overrides)) !== config.agentId) throw new DeploymentError("Role readback failed");
   record.runtimeHash = ethers.keccak256(await provider.getCode(record.vault, seeded.blockNumber));
+  record.deploymentConfirmation = await assertConfirmedReceipt(provider, receipt);
+  record.seedConfirmation = await assertConfirmedReceipt(provider, seeded);
   record.phase = "deployed-verified-readback";
   record.sourceVerification = "pending";
   save(record);
   if (needsHandover) {
     record.phase = "admin-handover-intent"; save(record);
     const handover = await vault.transferOwnership(config.adminAddress);
-    record.handoverTx = handover.hash; save(record); await handover.wait();
-    if (!(await vault.paused()) || (await vault.pendingOwner()).toLowerCase() !== config.adminAddress.toLowerCase()) throw new DeploymentError("Admin handover readback failed");
+    record.handoverTx = handover.hash; save(record);
+    const handedOver = await waitForConfirmedReceipt(provider, handover);
+    const handoverBlock = { blockTag: handedOver.blockNumber };
+    if (!(await vault.paused(handoverBlock)) || (await vault.pendingOwner(handoverBlock)).toLowerCase() !== config.adminAddress.toLowerCase()) throw new DeploymentError("Admin handover readback failed");
+    record.handoverConfirmation = await assertConfirmedReceipt(provider, handedOver);
     record.phase = "awaiting-admin-acceptance"; save(record);
   }
   return vault;

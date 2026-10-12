@@ -44,11 +44,10 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     uint256 public constant MAX_FEE_BPS = 300; // Hard safety cap: Protocol fee cannot exceed 3%
     uint256 public constant MAX_PARTNER_SHARE_BPS = 5000; // Developer partner share capped at 50% of fee
     /**
-     * The longest a buyer release authorization may stay valid.
-     *
-     * Without a ceiling a buyer could sign an expiry years out, leaving a
-     * standing release order that a relayer can fire at any moment long after
-     * the deal context has changed. One day is generous for a relayed flow.
+     * Maximum declared validity interval for release/refund consent.
+     * Both endpoints are signed, so an overlong interval never becomes valid
+     * as time passes. issuedAt is a signer declaration, not proof of when
+     * an off-chain signature was created. Clients must not future-date it.
      */
     uint256 public constant MAX_AUTHORIZATION_WINDOW = 1 days;
 
@@ -86,7 +85,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     uint256 public constant DISPUTE_FILING_GRACE = 2 days;
 
     bytes32 public constant RELEASE_TYPEHASH = keccak256(
-        "ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 expiry)"
+        "ReleaseAuthorization(bytes32 agreementId,address contractor,uint256 netAmount,uint256 nonce,uint256 issuedAt,uint256 expiry)"
     );
 
     bytes32 public constant AGENT_ATTESTATION_TYPEHASH = keccak256(
@@ -94,7 +93,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     );
 
     bytes32 public constant CONTRACTOR_CONSENT_TYPEHASH = keccak256(
-        "ContractorRefundConsent(bytes32 agreementId,uint256 nonce,uint256 expiry)"
+        "ContractorRefundConsent(bytes32 agreementId,uint256 nonce,uint256 issuedAt,uint256 expiry)"
     );
 
     // Separate from buyer release/settlement nonces: only contractor refund
@@ -743,6 +742,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
         bytes32 agreementId,
         bytes calldata buyerSignature,
         bytes calldata agentAttestation,
+        uint256 issuedAt,
         uint256 expiry
     ) external override nonReentrant whenNotPaused {
         Agreement storage agr = agreements[agreementId];
@@ -782,13 +782,15 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
              * authorization", which means no relayer, no agent and no gasless
              * flow could ever release a payment. Proven by test before this fix.
              *
-             * The expiry is now an explicit parameter: the buyer chooses it,
-             * signs it, and the contract enforces it. That is the only way both
-             * sides can agree on the same digest.
+             * issuedAt and expiry are explicit signed parameters. Their
+             * difference bounds the declared lifetime independently of the
+             * execution timestamp, so a rejected overlong interval cannot
+             * become valid later merely because the clock advanced.
              */
             require(buyerSignature.length == 65, "Invalid buyer signature length");
             require(expiry >= block.timestamp, "Release authorization expired");
-            require(expiry <= block.timestamp + MAX_AUTHORIZATION_WINDOW,
+            require(issuedAt != 0 && issuedAt <= block.timestamp, "Invalid release issuance time");
+            require(expiry - issuedAt <= MAX_AUTHORIZATION_WINDOW,
                 "Release authorization window too long");
 
             uint256 nonce = agreementNonces[agreementId];
@@ -799,6 +801,7 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
                     agr.contractor,
                     agr.netAmount,
                     nonce,
+                    issuedAt,
                     expiry
                 )
             );
@@ -923,7 +926,9 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
 
         IERC20(agr.token).safeTransfer(agr.buyer, refundAmount);
 
-        emit AgreementRefunded(agreementId, agr.buyer, refundAmount, "Deadline expired without delivery");
+        // State is already Refunded here; use the persistent delivery record.
+        emit AgreementRefunded(agreementId, agr.buyer, refundAmount,
+            agr.deliveredAt == 0 ? "Delivery deadline expired" : "Inspection expired without acceptance");
     }
 
     // ─── Safety Lifecycle: Mutual Refund ─────────────────────────────────────
@@ -948,16 +953,17 @@ contract SivanAgreementVault is ISivanAgreementVault, ReentrancyGuard, Pausable,
     }
 
     /// @notice Relayed refund with expiring EOA or ERC-1271 contractor consent.
-    function mutualRefundWithConsent(bytes32 agreementId, uint256 expiry, bytes calldata signature)
+    function mutualRefundWithConsent(bytes32 agreementId, uint256 issuedAt, uint256 expiry, bytes calldata signature)
         external override nonReentrant
     {
         Agreement storage agr = agreements[agreementId];
         require(agr.state == AgreementState.Funded || agr.state == AgreementState.Delivered
             || agr.state == AgreementState.Disputed, "Cannot refund in current state");
-        require(expiry >= block.timestamp && expiry <= block.timestamp + MAX_AUTHORIZATION_WINDOW,
+        require(issuedAt != 0 && issuedAt <= block.timestamp && expiry >= block.timestamp
+            && expiry - issuedAt <= MAX_AUTHORIZATION_WINDOW,
             "Invalid refund consent expiry");
         bytes32 digest = _hashTypedDataV4(keccak256(abi.encode(CONTRACTOR_CONSENT_TYPEHASH,
-            agreementId, refundConsentNonces[agreementId], expiry)));
+            agreementId, refundConsentNonces[agreementId], issuedAt, expiry)));
         require(SignatureChecker.isValidSignatureNow(agr.contractor, digest, signature),
             "Contractor refund consent required");
         _refundWithContractorConsent(agreementId, agr);

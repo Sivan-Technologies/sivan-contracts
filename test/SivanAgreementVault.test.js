@@ -174,7 +174,7 @@ describe("SivanAgreementVault", function () {
       const initialPartnerBal = await usdc.balanceOf(partnerDeveloper.address);
 
       await expect(
-        vault.connect(buyer).releasePayment(agreementId, "0x", agentSignature, 0)
+        vault.connect(buyer).releasePayment(agreementId, "0x", agentSignature, 0, 0)
       ).to.emit(vault, "AgreementReleased");
 
       // Verify contractor received net 99.25 USDC
@@ -217,7 +217,7 @@ describe("SivanAgreementVault", function () {
       const initialBuyerBal = await usdc.balanceOf(buyer.address);
       await expect(vault.connect(buyer).refundBuyer(agreementId))
         .to.emit(vault, "AgreementRefunded")
-        .withArgs(agreementId, buyer.address, amount, "Deadline expired without delivery");
+        .withArgs(agreementId, buyer.address, amount, "Delivery deadline expired");
 
       const finalBuyerBal = await usdc.balanceOf(buyer.address);
       expect(finalBuyerBal - initialBuyerBal).to.equal(amount);
