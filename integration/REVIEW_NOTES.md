@@ -1,5 +1,21 @@
 # Integration review log
 
+## 2026-10-16 — Recipient-bound claim product specification only
+
+Added [the recipient-bound proposal](../docs/RECIPIENT_BOUND_CLAIMS_SPEC.md),
+covering canonical identity and wallet binding, protected authorization, durable
+reconciliation, channel onboarding, developer isolation and staged validation.
+Source review distinguishes the existing bearer-link contract from the payment
+service's internal-ledger pending claims; neither proves exclusive phone-recipient
+on-chain claiming. Reviewed channel paths are not a complete channel security audit.
+
+No contract, ABI, executable adapter, deployed API, fee, deadline or signing schema
+changes in this documentation change. Existing v1 deployments and single/milestone
+agreements retain their original behavior. Proposed schemas and endpoints require
+implementation and tests; economic policy, identity assurance and attestor governance
+remain explicit approval gates. No public deployment, real claim, messaging delivery
+or wallet provisioning was performed as part of this specification.
+
 ## 2026-10-10 — Separate bearer-link Claim Vault v1
 
 Added `SivanClaimVault` without modifying either existing agreement contract or

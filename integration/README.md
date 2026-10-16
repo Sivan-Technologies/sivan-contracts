@@ -3,6 +3,9 @@
 Claim-link escrow is a separate capability: see [Claim Vault v1](CLAIM_VAULT.md)
 for its implemented contract, authorization schema, fees/refunds and outstanding
 application integration. Do not route claim links through agreement adapters.
+For the proposed phone-recipient product, see [Recipient-bound claims](../docs/RECIPIENT_BOUND_CLAIMS_SPEC.md):
+WhatsApp/Telegram onboarding, SMS invitations and shared developer access. This
+is a separate design proposal, not an existing v1 capability or deployed API.
 The generated ABI reference includes the claim vault alongside both agreement
 vaults. Existing deployed escrow is unchanged; current-source signing migrations
 are explicitly described below and require new deployment-specific adapters.
