@@ -259,7 +259,8 @@ is considered for the initial Arc deployment.
 | Funded deposit/claim/refund transfer deltas on Arc Testnet | **Done** (2026-10-21) | See §5 lifecycle evidence |
 | Dedicated deployer/admin/treasury provisioned | **Done** (2026-10-21) | — |
 | `arcTestnet` promoted from `pending` to `candidate` | **Done** (this patch) | — |
-| Arc explorer API compatibility checked | **Open** | Non-blocking for deploy |
+| Arc explorer API compatibility checked | **Done** (2026-10-21) | — |
+| Source verification on Arc Blockscout | **Verified** (2026-10-21) | — |
 | USDT testnet address for Arc identified | Not investigated | Not required for initial deploy |
 | Local test matrix (all 5 chain IDs) | Passing (145 cases, 2026-10-21) | — |
 | Local deployment tooling tests (3 candidates) | Passing (2026-10-21) | — |
@@ -348,9 +349,15 @@ above. The operator should run a follow-up refund test after 2026-10-28.
 
 ### Unresolved after this run
 
-1. Source verification on Arc explorer (non-blocking for testnet use; Arc explorer
-   API URL/key not yet configured).
-2. Refund of deposit B after 2026-10-28.
+1. ~~Source verification on Arc explorer~~ — **Resolved 2026-10-21**: Arc Testnet
+   runs Blockscout with etherscan-compat API. `claim:verify arcTestnet` submitted
+   the standard-JSON-input source; Blockscout confirmed `is_verified: true`,
+   `name: SivanClaimVault`, `compiler_version: v0.8.24+commit.e11b9ed9`.
+   Explorer: `https://explorer.testnet.arc.io/address/0x8BD6d2666E350932A82098399BF89dB3eC66233A`
+2. Refund of deposit B after 2026-10-28 — **open**. Run `scripts/arc-claim-refund.js`
+   after 2026-10-28T16:38:11Z. The script gates on the block timestamp, asserts
+   exact net return, locked() delta, and status = 3 (Refunded), and prints an
+   evidence summary for the gap report.
 3. Independent professional audit (required before mainnet).
 4. Admin multisig validation (testnet_eoa mode used; multisig required for production).
 
@@ -430,3 +437,67 @@ Deployed at block 68,379,040. Journal: `deployments/claim-5042002-v1.json`.
 | Phase | deployed-readback |
 | Source verification | pending |
 | readyForUse | false |
+
+---
+
+## §8 — Step 5: Public lifecycle evidence (2026-10-21)
+
+Lifecycle already recorded in §5 above. All steps complete:
+- Approve, deposit×2, relayed claim, replay rejection: confirmed on-chain.
+- All accounting assertions passed: exact 50 bps fee, exact net transfers,
+  locked() delta, treasury gain, replay reverted immediately.
+- EIP-712 domain binding confirmed by live signature round-trip.
+- Refund of deposit B pending (2026-10-28T16:38:11Z); `scripts/arc-claim-refund.js`
+  will execute and assert it.
+
+---
+
+## §9 — Step 6: Source verification and integration docs (2026-10-21)
+
+### Arc explorer API compatibility
+
+Explorer: `https://explorer.testnet.arc.io` (Blockscout).
+
+Live probe results (2026-10-21):
+- `eth_getCode` for USDC `0x3600...` → returned ABI (status "1"): confirmed etherscan-compat API live.
+- Blockscout v2 REST `/api/v2/smart-contracts/<addr>` → returned full creation bytecode + ABI.
+- `verifysourcecode` POST endpoint → "Missing sourceCode" (rejected correctly on missing fields, not auth).
+- No API key required for submission (Blockscout standard). Non-empty placeholder satisfies the local guard.
+
+### Source verification result
+
+Command: `claim:verify -- arcTestnet`
+
+`hardhat-verify` submitted standard-JSON-input for `contracts/SivanClaimVault.sol:SivanClaimVault`
+using the Hardhat `verify:verify` task. Blockscout accepted the submission immediately.
+
+Confirmation (Blockscout v2 API, 2026-10-21):
+```json
+{
+  "is_verified": true,
+  "name": "SivanClaimVault",
+  "compiler_version": "v0.8.24+commit.e11b9ed9"
+}
+```
+
+Explorer URL:
+`https://explorer.testnet.arc.io/address/0x8BD6d2666E350932A82098399BF89dB3eC66233A`
+
+Journal updated: `sourceVerification: "verified"`, `sourceVerificationMethod: "blockscout-etherscan-compat-api"`.
+
+### Integration docs updated
+
+- `integration/CLAIM_VAULT.md` §"Arc Testnet deployment — v1": full deployment
+  table, lifecycle evidence table, EIP-712 domain, refund script reference, and
+  release gate checkbox.
+- `integration/REVIEW_NOTES.md`: 2026-10-21 entry added.
+- `integration/source-baseline.json`: refreshed via `integration:refresh`.
+
+### Remaining open items (post Steps 3–6)
+
+| Item | Status |
+| --- | --- |
+| Live refund of deposit B | **Open — runs after 2026-10-28T16:38:11Z** |
+| Independent professional audit | Required before mainnet |
+| Admin multisig for production | Required before mainnet |
+| `readyForUse` gate | Remains false; explicit operator approval required |

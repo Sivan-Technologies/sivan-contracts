@@ -161,12 +161,73 @@ models legacy empty returns and blocking, not an issuer-certified deployment.
 USDC-like 6 decimals and 18-decimal token tests are local compatibility scenarios.
 Record actual results in REVIEW_NOTES; do not imply unexecuted checks passed.
 
+## Arc Testnet deployment — v1 (2026-10-21)
+
+The first public deployment of `SivanClaimVault` is on Arc Testnet (chain ID 5042002).
+
+| Field | Value |
+| --- | --- |
+| Vault address | `0x8BD6d2666E350932A82098399BF89dB3eC66233A` |
+| Deploy tx | `0xb86088c2880d2fa571c923bdb34504907c00236d51d7e9d921ed44967318ff15` |
+| Deploy block | 68,379,040 |
+| Runtime keccak256 | `0xfbc6bec576b34879c87514dbdd1a43728d196666a2d915e14621beba7f339f2c` |
+| Compiler | solc 0.8.24, evmVersion cancun, viaIR true |
+| Admin | `0xC380288835a6a745Dc3baF676c7442eeBBE01847` (testnet_eoa, non-production) |
+| Treasury | `0x2a8b870806FD4b38603De24E0febc801e1896b94` (testnet_eoa, non-production) |
+| Allowed tokens | USDC `0x3600000000000000000000000000000000000000` (6 dec) |
+| Source verification | **verified** — Arc Blockscout explorer (2026-10-21) |
+| Explorer | `https://explorer.testnet.arc.io/address/0x8BD6d2666E350932A82098399BF89dB3eC66233A` |
+| Journal | `deployments/claim-5042002-v1.json` (gitignored — back up separately) |
+| readyForUse | false — testnet candidate only |
+
+### Lifecycle evidence (2026-10-21)
+
+Step 3 (preflight) and Step 4 (deploy) passed; Step 5 (funded lifecycle) executed
+with dedicated faucet-funded test wallets. Step 6 (source verification) confirmed.
+
+| Step | Tx / Evidence | Result |
+| --- | --- | --- |
+| Preflight (block 68,382,564) | read-only | passed — gas 1,509,015, reserve ok |
+| Deploy | `0xb86088c2...` block 68,379,040 | 8 confirmations, runtime hash matched |
+| Approve 4 USDC | `0x99b1ac42...` block 68,379,351 | ok |
+| Deposit A gross 2 USDC | `0xad0bb11f...` block 68,379,359 | fee=0.01, net=1.99 (50 bps exact) |
+| Deposit B gross 2 USDC | `0xfa96254c...` block 68,379,368 | fee=0.01, net=1.99, expires 2026-10-28 |
+| Relayed claim A | `0x1a97a215...` block 68,379,377 | recipient received exactly 1.990000 USDC |
+| Replay rejection | — | reverted InvalidAuthorization immediately |
+| Treasury gain | — | +0.020000 USDC = feeA + feeB, exact |
+| locked() delta | — | 3.980000 USDC = netA + netB, exact |
+| Source verification | Blockscout API | `is_verified: true`, `SivanClaimVault`, v0.8.24 |
+
+### Pending live evidence
+
+Deposit B (`0x018f6f38...`) expires **2026-10-28T16:38:11Z**. Run:
+```sh
+node -r dotenv/config scripts/arc-claim-refund.js
+```
+after that date to produce the final on-chain refund evidence. The script
+asserts exact net return, locked() delta, and deposit status = 3 (Refunded).
+
+### EIP-712 domain on Arc Testnet
+
+```text
+name: "SivanClaimVault"
+version: "1"
+chainId: 5042002
+verifyingContract: 0x8BD6d2666E350932A82098399BF89dB3eC66233A
+```
+
+Signatures produced against this domain are not transferable to any other
+chain or vault address. Pass `chainId: 5042002` and the vault address above
+to `claimAuthorization()` in `scripts/helpers/claim-authorization.js`.
+
+---
+
 ## Release gates
 
 - Local adversarial/unit tests, accounting sequences, Foundry fuzz/invariants and
   static-analysis triage; full existing-vault regression suite.
 - Protected testnet deployment tooling and environment-only network/token config.
-- Testnet token verification, source verification and real receipt/reorg handling.
+- Testnet token verification, source verification and real receipt/reorg handling. **[Done — Arc Testnet 2026-10-21]**
 - Frontend/backend/relayer integration and controlled testnet claim/refund journeys.
 - Independent security review, admin multisig validation and explicit mainnet approval.
 

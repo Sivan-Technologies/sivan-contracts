@@ -401,3 +401,42 @@ to "Candidate — see ARC_CLAIM_GAP_REPORT.md".
 
 `readyForUse` remains false. No public deployment is authorized by this patch.
 Human review and full-repository CI must complete before merge.
+
+## 2026-10-21 — Arc Testnet deployment, lifecycle, verification, and integration docs (Steps 3–6)
+
+Branch: `feature/arc-claim-vault`. Commits: `ac58f0b`, `49b5e1c`, `b1cf0d1`, and the
+commit from this session covering Steps 3–6.
+
+**Step 3 — `claim:preflight` (read-only):**
+Preflight passed at blocks 68,378,960 and 68,382,564. All checks clean: chain ID
+5042002, solc 0.8.24 cancun, runtime 6,193 bytes, EOA roles, USDC metadata and code
+hash, gas 1,509,015, 2× reserve satisfied. No transaction sent.
+
+**Step 4 — `claim:deploy`:**
+Vault deployed at `0x8BD6d2666E350932A82098399BF89dB3eC66233A`, tx
+`0xb86088c2...`, block 68,379,040, 8 confirmations. Runtime keccak256
+`0xfbc6bec5...`. Journal at `deployments/claim-5042002-v1.json` (gitignored).
+`readyForUse: false`.
+
+**Step 5 — Funded lifecycle:**
+Dedicated test wallets (deployer `0x9F1E953b...`, sender `0xffd63dAE...`), faucet
+USDC. Approve, deposit A (gross 2 USDC, fee 0.01, net 1.99), deposit B (same
+amounts, expires 2026-10-28T16:38:11Z), relayed claim A, replay rejection.
+Accounting assertions: recipient gained 1.990000 USDC, treasury gained 0.020000
+USDC, locked() delta 3.980000 USDC — all exact. EIP-712 raw-hash signing confirmed.
+Deposit B refund pending live clock. `scripts/arc-claim-refund.js` written: gates on
+block timestamp, asserts exact net, locked() delta, status = 3.
+
+**Step 6 — Source verification and integration docs:**
+Arc explorer (`explorer.testnet.arc.io`) runs Blockscout with etherscan-compat API.
+`claim:verify arcTestnet` submitted standard-JSON-input successfully. Blockscout
+returned `is_verified: true`, `name: SivanClaimVault`, `v0.8.24+commit.e11b9ed9`.
+Journal patched to `sourceVerification: "verified"`.
+
+`integration/CLAIM_VAULT.md` updated with full deployment table, lifecycle evidence,
+EIP-712 domain, refund script reference, and release gate item closed.
+`integration/source-baseline.json` refreshed. `integration:check` passing.
+Test matrix: 160/160 passing (Arc: 38 cases including refund simulation).
+
+No Solidity source, ABI, fee, signing schema, or existing deployment changed.
+`readyForUse` remains false; independent review and production multisig required.
