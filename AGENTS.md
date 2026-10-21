@@ -1,3 +1,18 @@
+# Arc Testnet deployments
+
+## SivanClaimVault v1
+- Address: `0x8BD6d2666E350932A82098399BF89dB3eC66233A`
+- Chain: Arc Testnet (5042002)
+- Deploy tx: `0xb86088c2880d2fa571c923bdb34504907c00236d51d7e9d921ed44967318ff15`
+- Deploy block: 68,379,040
+- Runtime keccak256: `0xfbc6bec576b34879c87514dbdd1a43728d196666a2d915e14621beba7f339f2c`
+- Source verified: Blockscout (2026-10-21) — https://explorer.testnet.arc.io/address/0x8BD6d2666E350932A82098399BF89dB3eC66233A
+- Testnet frontend: `frontend/` — run `cd frontend && bun run dev` (port 5174)
+- Deposit B (live, expires 2026-10-28T16:38:11Z): `0x018f6f38f053645e1e65b759f9c48ac594eb8bc911444a2dbbfbfac38c565022`
+- USDC (Arc Testnet predeploy): `0x3600000000000000000000000000000000000000`
+
+---
+
 # Contract integration documentation policy
 
 - Preserve unrelated working-tree changes. Never submit live transfers, create

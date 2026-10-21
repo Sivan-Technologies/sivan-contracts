@@ -16,6 +16,8 @@ release-evidence/
 forge-out/
 cache_forge/
 lib/
+# Allow frontend source lib (frontend/src/lib is not the Foundry lib/)
+!frontend/src/lib/
 
 # Per-deployment records. No secrets, but not repository-wide state.
 deployments/
