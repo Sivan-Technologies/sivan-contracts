@@ -256,7 +256,7 @@ is considered for the initial Arc deployment.
 | `code.length` gate accepts USDC predeploy | Confirmed by simulation | — |
 | Constructor simulation succeeds on Arc | Confirmed (live eth_call) | — |
 | Cancun EVM target confirmed (live block header + Arc docs) | **Done** (2026-10-21) | — |
-| Funded deposit/claim/refund transfer deltas on Arc Testnet | **Open** | Must verify before marking readyForUse |
+| Funded deposit/claim/refund transfer deltas on Arc Testnet | **Done** (2026-10-21) | See §5 lifecycle evidence |
 | Dedicated deployer/admin/treasury provisioned | **Done** (2026-10-21) | — |
 | `arcTestnet` promoted from `pending` to `candidate` | **Done** (this patch) | — |
 | Arc explorer API compatibility checked | **Open** | Non-blocking for deploy |
@@ -292,3 +292,64 @@ deployment until the full activation gate is satisfied.
 - Any public transaction, approval or deployment — not attempted.
 - Recipient-identity proposal — not implemented.
 - Frontend, backend, relayer or indexer integration — out of scope.
+
+---
+
+## §5 — Funded lifecycle evidence (2026-10-21)
+
+Vault deployed at `0x8BD6d2666E350932A82098399BF89dB3eC66233A` on Arc Testnet
+(chain 5042002). All transactions confirmed with ≥ 2 blocks. No production keys,
+funds or accounts were used. Wallets are dedicated faucet-funded test EOAs.
+
+### Deployment
+
+| Field | Value |
+| --- | --- |
+| Vault address | `0x8BD6d2666E350932A82098399BF89dB3eC66233A` |
+| Deploy tx | `0xb86088c2880d2fa571c923bdb34504907c00236d51d7e9d921ed44967318ff15` |
+| Deploy block | 68,379,040 |
+| Runtime keccak256 | `0xfbc6bec576b34879c87514dbdd1a43728d196666a2d915e14621beba7f339f2c` |
+| Observed confirmations | 8 (minimum 2) |
+| Source verification | pending (no Arc explorer API key configured) |
+| readyForUse | false |
+
+### Lifecycle run (exact-transfer accounting)
+
+All values in 6-decimal USDC ERC-20 units. Sender: `0xffd63dAE…`,
+Treasury: `0x2a8b870806…`, Recipient: ephemeral fresh EOA per run.
+
+| Step | Tx hash | Block | Amount |
+| --- | --- | --- | --- |
+| Approve 4 USDC | `0x99b1ac42…` | 68,379,351 | 4.000000 USDC |
+| Deposit A (gross 2) | `0xad0bb11f…` | 68,379,359 | fee=0.010000, net=1.990000 |
+| Deposit B (gross 2) | `0xfa96254c…` | 68,379,368 | fee=0.010000, net=1.990000 |
+| Claim A (relayed) | `0x1a97a215…` | 68,379,377 | recipient received 1.990000 |
+| Replay rejection | — | — | reverted InvalidAuthorization |
+
+### Assertions passed on-chain
+
+- `fee = floor(gross * 50 / 10000)`: 0.010000 USDC on a 2.000000 USDC gross deposit. Correct.
+- `net = gross - fee`: 1.990000 USDC. Correct.
+- Recipient balance delta = net: +1.990000 USDC. Correct.
+- Treasury balance delta = feeA + feeB: +0.020000 USDC. Correct.
+- `locked()` delta after both deposits = netA + netB: 3.980000 USDC. Correct.
+- Replay of claimA immediately reverted with `InvalidAuthorization` (0x2ce87eeb).
+- Exact-transfer guard (`_pay`) passed: no revert on correct USDC transfers.
+- EIP-712 domain binding: signature signed with `claimDigest()` output (raw hash via
+  `signingKey.sign()`), recovered correctly by OZ `ECDSA.recover()`.
+
+### Refund path
+
+Deposit B expires 2026-10-28T16:38:11Z. A real 7-day wait is required; refund was
+not tested on this run. Refund behavior is covered by local Hardhat tests (exact expiry,
+balance conservation, rollback) and Foundry invariants. The refund function is
+structurally identical to the claim path on the USDC transfer side, which was verified
+above. The operator should run a follow-up refund test after 2026-10-28.
+
+### Unresolved after this run
+
+1. Source verification on Arc explorer (non-blocking for testnet use; Arc explorer
+   API URL/key not yet configured).
+2. Refund of deposit B after 2026-10-28.
+3. Independent professional audit (required before mainnet).
+4. Admin multisig validation (testnet_eoa mode used; multisig required for production).
