@@ -21,8 +21,8 @@ export const arcTestnet: Chain = {
   testnet: true,
 };
 
-// ─── Deployed SivanClaimVault v1 ──────────────────────────────────────────────
-export const VAULT_ADDRESS = "0x8BD6d2666E350932A82098399BF89dB3eC66233A" as const;
+// ─── Deployed SivanClaimVault v2 (Arc Studio deploy 2026-10-21) ──────────────
+export const VAULT_ADDRESS = "0x7f1e5a0e096840337c671904b7a099b07d06a539" as const;
 
 // ─── Arc Testnet USDC (predeploy, 6-decimal ERC-20) ──────────────────────────
 export const USDC_ADDRESS = "0x3600000000000000000000000000000000000000" as const;
