@@ -24,9 +24,11 @@ describe('Read-only five-testnet diagnostics', () => {
     expect(result.ok).eq(false);
   });
   it('keeps pending profiles and every mainnet blocked', () => {
-    for(const name of ['arcTestnet','bscTestnet','arc','bsc','celo','base','arbitrum']) {
+    // arcTestnet is now a candidate; bscTestnet and all mainnets remain blocked.
+    for(const name of ['bscTestnet','arc','bsc','celo','base','arbitrum']) {
       expect(() => assertDeployable(getNetwork(name))).to.throw();
     }
+    expect(() => assertDeployable(getNetwork('arcTestnet'))).not.to.throw();
   });
   it('rejects stale blocks and non-HTTPS endpoints', async () => {
     const env = { BSC_TESTNET_RPC_URL: 'https://example.invalid' };

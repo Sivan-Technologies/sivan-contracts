@@ -19,7 +19,7 @@ token allowlist, treasury and EIP-712 domain chain ID.
 | Arbitrum | `arbitrumSepolia` | 421614 | Candidate |
 | BNB Smart Chain (BEP-20 assets) | `bscTestnet` | 97 | Pending review |
 | Polygon | `polygonAmoy` | 80002 | Pending review |
-| Arc | `arcTestnet` | 5042002 | Pending review |
+| Arc | `arcTestnet` | 5042002 | Candidate — see ARC_CLAIM_GAP_REPORT.md |
 | Ethereum | `ethereumSepolia` | 11155111 | Pending review |
 | Optimism | `optimismSepolia` | 11155420 | Pending review |
 | Linea / Sonic | registry placeholders | Not configured | Pending review |

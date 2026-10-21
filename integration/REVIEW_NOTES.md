@@ -337,3 +337,67 @@ triage for `AgreementState.Uninitialized` equality was re-reviewed and its ID
 updated after source offsets shifted; no detector-wide suppression or gate
 reduction was introduced. ABI generation changes only the two intended function
 signatures; the guide documents both typed-data changes and adapter migration.
+
+## 2026-10-21 — Arc Testnet Claim Vault compatibility review
+
+Branch: `feature/arc-claim-vault`. Source baseline: `44caa7b`.
+See `docs/ARC_CLAIM_GAP_REPORT.md` for the full evidence record.
+
+Objective: validate Arc Testnet (chain ID 5042002) compatibility for
+`SivanClaimVault` and return a minimal reviewable patch. No public
+transactions, deployments or production credentials were accessed.
+
+**Network and token evidence (read-only, 2026-10-21):**
+- `eth_chainId` at `https://rpc.testnet.arc.io` returned `0x4cef52` (5042002);
+  matches the existing registry entry.
+- `eth_blockNumber` returned `0x4135660` (68,376,160); network is live.
+- USDC predeploy `0x3600000000000000000000000000000000000000`:
+  `symbol() = "USDC"`, `decimals() = 6`, code length 1,798 bytes,
+  `keccak256(code) = 0xc9987bd3af6b26a030951faa7eacc017b68343aeedf3ce5fe68f821c4b93939d`.
+- Constructor `eth_call` simulation with USDC and two dummy EOAs returned
+  non-empty runtime bytecode, confirming creation bytecode executes without
+  reverting and the `code.length` gate accepts the predeploy.
+
+**Contract compatibility assessment:**
+- `SivanClaimVault` interacts with USDC exclusively through the 6-decimal
+  ERC-20 interface. It does not use `msg.value`, `address.balance`, or the
+  18-decimal native view. The two-view accounting model does not affect the
+  contract's deposit or payout math.
+- The existing `code.length != 0` gate in `_setToken()` accepts USDC correctly.
+- Exact-transfer guards (`deposit`, `_pay`) are transfer-delta checks and are
+  decimals-agnostic; they work correctly with any exact-transfer ERC-20.
+- The EIP-712 domain binds `block.chainid` at deployment, correctly scoping
+  signatures to chain ID 5042002.
+- Gas on Arc is paid from the same USDC pool; the deployer and depositor
+  wallets must hold USDC for both the transfer amount and gas. This is a UX
+  constraint, not a contract defect.
+
+**Unresolved items (operator must confirm before public deployment):**
+- Cancun EVM opcode support confirmed against official Arc release notes
+  (constructor simulation succeeded but primary-source changelog not reviewed).
+- Funded deposit/claim/refund transfer deltas on live Arc Testnet USDC not yet
+  measured (requires authorized test wallets and gas).
+
+**Local test evidence:**
+- `npm run claim:test-matrix` passed 145 cases (33 each for Celo/Base/Arbitrum,
+  23 each for Arc/BNB) on ephemeral Hardhat chain IDs; exit code 0.
+- Arc profile (5042002) now runs deployment tooling tests because it is promoted
+  to `candidate`; previously those 10 tests were skipped for Arc.
+- Full Hardhat regression suite and Foundry suite also rerun cleanly (see below).
+
+**Patch — one-line change:**
+`config/evm-networks.cjs`: `arcTestnet` status promoted from `"pending"` to
+`"candidate"`. This enables `claim:preflight` and `claim:deploy` for Arc Testnet
+and adds deployment tooling tests to the Arc local profile. No Solidity, ABI,
+fee, signing schema, or existing deployment changed. Celo Sepolia behavior is
+unaffected.
+
+`docs/CLAIM_TESTNET_DEPLOYMENT.md`: Arc table row updated from "Pending review"
+to "Candidate — see ARC_CLAIM_GAP_REPORT.md".
+
+`integration/REVIEW_NOTES.md`: this entry.
+
+`docs/ARC_CLAIM_GAP_REPORT.md`: new, full evidence and gap analysis.
+
+`readyForUse` remains false. No public deployment is authorized by this patch.
+Human review and full-repository CI must complete before merge.

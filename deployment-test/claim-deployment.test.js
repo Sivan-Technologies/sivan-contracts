@@ -28,7 +28,8 @@ describe("Claim deployment tooling — ephemeral test chain only", function () {
   it("blocks mainnet, production profile and pending chains", function () {
     expect(() => configuration(getNetwork("celo"), env)).to.throw("Mainnet");
     expect(() => configuration(network, { ...env, EVM_PROFILE: "production" })).to.throw("testnet profile");
-    for (const name of ["bscTestnet", "polygonAmoy", "arcTestnet", "optimismSepolia", "ethereumSepolia", "lineaTestnet", "sonicTestnet"])
+    // arcTestnet is now a candidate; remaining pending networks still throw.
+    for (const name of ["bscTestnet", "polygonAmoy", "optimismSepolia", "ethereumSepolia", "lineaTestnet", "sonicTestnet"])
       expect(() => configuration(getNetwork(name), env)).to.throw("pending");
   });
   it("rejects conflicting roles, invalid tokens and duplicate tokens", function () {
