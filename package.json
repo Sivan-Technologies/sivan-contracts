@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "compile": "hardhat compile",
+    "studio:build": "forge build --out contracts/out",
     "integration:check": "node scripts/check-integration-docs.js",
     "integration:refresh": "node scripts/check-integration-docs.js --refresh",
     "release:manifest": "node scripts/release-manifest.js",
