@@ -353,3 +353,80 @@ above. The operator should run a follow-up refund test after 2026-10-28.
 2. Refund of deposit B after 2026-10-28.
 3. Independent professional audit (required before mainnet).
 4. Admin multisig validation (testnet_eoa mode used; multisig required for production).
+
+---
+
+## §6 — Refund-path simulation evidence (2026-10-21)
+
+**Method**: Ephemeral Hardhat network at chain ID 5042002, exact contract bytecode
+from the deployed vault, local USDC fixture (6 decimals), Hardhat time-travel.
+This is simulation evidence, not a live Arc Testnet refund transaction.
+
+**Test file**: `deployment-test/arc-refund-simulation.test.js`
+
+**Run command**:
+```sh
+CLAIM_TEST_NETWORK=arcTestnet \
+npx hardhat test --config config/claim-local-test.cjs --network hardhat \
+  deployment-test/arc-refund-simulation.test.js --no-compile
+```
+
+**Results** (5/5 passing, 2026-10-21):
+
+| Test | Outcome |
+| --- | --- |
+| deposit → time-travel → refund transfers exact net to sender | PASS |
+| double-refund rejected after terminal state (NotActive) | PASS |
+| outsider cannot refund (NotSender) | PASS |
+| fee is non-refundable: refund returns only net | PASS |
+| records live deployment metadata for traceability | PASS |
+
+**Assertions verified**:
+- Net refunded = 1.990000 USDC (gross 2 - fee 0.010000).
+- Fee withheld = 0.010000 USDC (stays in treasury, non-refundable).
+- `locked()` delta = net amount (exact).
+- Vault USDC balance delta = net (exact transfer guard passes).
+- Deposit status = 3 (Refunded) after terminal transition.
+- `RefundNotAvailable` reverts before expiry.
+- `NotSender` reverts for unauthorized callers.
+- `NotActive` reverts on double-refund attempt.
+
+**Pending live evidence**: deposit B (`0x018f6f38…`) expires 2026-10-28T16:38:11Z.
+A live on-chain refund transaction should be submitted after that date to produce
+primary-source evidence. The refund caller is `0xffd63dAE…` (the original sender).
+
+---
+
+## §7 — Steps 3 and 4 clean re-run summary (2026-10-21)
+
+### Step 3: `claim:preflight` on Arc Testnet
+
+Re-run at block 68,380,523 (2026-10-21). All checks passed:
+
+| Check | Result |
+| --- | --- |
+| RPC chain ID | 5042002 (matches registry) |
+| Profile | testnet |
+| Artifact | SivanClaimVault, solc 0.8.24, cancun, viaIR |
+| Runtime size | 6,193 bytes (< 24,576 EIP-170 limit) |
+| Deployer is EOA | Pass |
+| Control mode | testnet_eoa |
+| USDC token metadata | symbol=USDC, decimals=6 |
+| USDC runtime code hash | matches stored value |
+| Gas estimate | 1,509,015 |
+| 2× cost reserve check | Pass (deployer held enough USDC) |
+
+### Step 4: `claim:deploy` on Arc Testnet
+
+Deployed at block 68,379,040. Journal: `deployments/claim-5042002-v1.json`.
+
+| Field | Value |
+| --- | --- |
+| Vault address | `0x8BD6d2666E350932A82098399BF89dB3eC66233A` |
+| Deploy tx | `0xb86088c2880d2fa571c923bdb34504907c00236d51d7e9d921ed44967318ff15` |
+| Deploy block hash | `0x38c3006099869b261150f1042fe04c31b9ef0ad3ad3fd4da2d975e8fdac60e87` |
+| Min/observed confirmations | 2 / 8 |
+| Runtime keccak256 | `0xfbc6bec576b34879c87514dbdd1a43728d196666a2d915e14621beba7f339f2c` |
+| Phase | deployed-readback |
+| Source verification | pending |
+| readyForUse | false |
