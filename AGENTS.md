@@ -1,16 +1,22 @@
 # Arc Testnet deployments
 
-## SivanClaimVault v2 (Arc Studio deploy, 2026-10-21)
-- Address: `0x7f1e5a0e096840337c671904b7a099b07d06a539`
+## SivanClaimVault v3 (Arc Studio deploy, 2026-10-22) — CURRENT
+- Address: `0x12880b072e2698ffbfea25cc959a92af769efed1`
 - Chain: Arc Testnet (5042002)
-- Deploy tx: `0xa73b026fc9539c883a36aa747dcd6656fafd2e7fec92984b07c150029e7507d5`
-- Deployed at: 2026-10-21T17:43:49Z
-- Explorer: https://explorer.testnet.arc.io/address/0x7f1e5a0e096840337c671904b7a099b07d06a539
+- Deploy tx: `0x96ba41e8c95c9ca3bf351dc57e8a7157329999c5d37c0e0d4e4b36b20549c78d`
+- Deployed at: 2026-10-22T09:48:43Z
+- Explorer: https://explorer.testnet.arc.io/address/0x12880b072e2698ffbfea25cc959a92af769efed1
 - Admin/Owner: `0x5B12Ce46C7194aD57d143bC22847224047b1Ef42` (platform deployer)
-- Treasury: `0x5B12Ce46C7194aD57d143bC22847224047b1Ef42` (platform deployer)
+- Treasury: `0xd62D8aD1EE242745959221b5d020FAf20b41d14A` (your treasury wallet — verified on-chain)
 - Allowed token: `0x3600000000000000000000000000000000000000` (Arc Testnet USDC)
 - Testnet frontend: `frontend/` — run `cd frontend && bun run dev` (port 5174)
 - Contract metadata: `contracts/contract-metadata/SivanClaimVault.json`
+
+## SivanClaimVault v2 (Arc Studio deploy, 2026-10-21) — superseded
+- Address: `0x7f1e5a0e096840337c671904b7a099b07d06a539`
+- Chain: Arc Testnet (5042002)
+- Deploy tx: `0xa73b026fc9539c883a36aa747dcd6656fafd2e7fec92984b07c150029e7507d5`
+- Treasury was deployer wallet (incorrect) — replaced by v3
 
 ## SivanClaimVault v1 (manual deploy, 2026-10-21)
 - Address: `0x8BD6d2666E350932A82098399BF89dB3eC66233A`

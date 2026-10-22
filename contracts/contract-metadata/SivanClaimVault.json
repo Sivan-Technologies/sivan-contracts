@@ -1,13 +1,20 @@
 {
-  "contractAddress": "0x7f1e5a0e096840337c671904b7a099b07d06a539",
+  "contractAddress": "0x12880b072e2698ffbfea25cc959a92af769efed1",
   "network": "ARC-TESTNET",
   "deployerWalletId": "3c2464b2-8369-52e2-a782-800bbeca5396",
   "contract_code_path": "/home/user/app/contracts/SivanClaimVault.sol",
   "contract_compiled_code_path": "/home/user/app/contracts/out/SivanClaimVault.sol/SivanClaimVault.json",
   "contract_network_and_links": {
-    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x7f1e5a0e096840337c671904b7a099b07d06a539"
+    "Arc Testnet": "https://explorer.testnet.arc.io/address/0x12880b072e2698ffbfea25cc959a92af769efed1"
   },
   "contract_deployments": [
+    {
+      "chain": "Arc Testnet",
+      "address": "0x12880b072e2698ffbfea25cc959a92af769efed1",
+      "explorerUrl": "https://explorer.testnet.arc.io/address/0x12880b072e2698ffbfea25cc959a92af769efed1",
+      "txHash": "0x96ba41e8c95c9ca3bf351dc57e8a7157329999c5d37c0e0d4e4b36b20549c78d",
+      "deployedAt": "2026-10-22T09:48:43.372Z"
+    },
     {
       "chain": "Arc Testnet",
       "address": "0x7f1e5a0e096840337c671904b7a099b07d06a539",
